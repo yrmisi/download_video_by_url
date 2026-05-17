@@ -1,0 +1,22 @@
+body {
+  background-color: #1a1a1a;
+  color: #eeeeee;
+}
+
+.card {
+  background-color: #262626;
+  border-radius: 8px;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Отменяем стандартный стиль автозаполнения Chrome */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #eeeeee; /* Цвет текста */
+  -webkit-box-shadow: 0 0 0px 1000px #333 inset; /* Внутренняя тень вместо фона */
+  transition: background-color 5000s ease-in-out 0s;
+}

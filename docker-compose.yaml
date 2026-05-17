@@ -1,0 +1,107 @@
+services:
+  db:
+    image: postgres:18.3-alpine3.23
+    container_name: db
+    restart: unless-stopped
+    env_file:
+      - app/config/envs/.env.postgres-prod
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/18/docker
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - my_network
+  migrations:
+    build:
+      context: .
+      dockerfile: docker_build/backend/Dockerfile
+    container_name: migrations
+    env_file:
+      - app/config/envs/.env.postgres-prod
+    depends_on:
+      db:
+        condition: service_healthy
+    # Переопределяем команду: выполняем миграцию и выходим
+    command: >
+      sh -c "alembic upgrade head"
+    networks:
+      - my_network
+  redis:
+    image: redis:8.6.3-alpine3.23
+    container_name: redis
+    restart: unless-stopped
+    env_file:
+    - app/config/envs/.env.redis-prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+    - my_network
+  web:
+    build:
+      context: .
+      dockerfile: docker_build/backend/Dockerfile
+    container_name: web
+    restart: unless-stopped
+    env_file:
+      - app/config/envs/.env.app-prod
+      - app/config/envs/.env.postgres-prod
+      - app/config/envs/.env.redis-prod
+    ports:
+      - "8000:8000"
+    volumes:
+      - downloads_data:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://web:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - my_network
+  nginx:
+    build:
+      context: .
+      dockerfile: docker_build/frontend/Dockerfile
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - downloads_data:/usr/share/nginx/html/downloads:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - my_network
+
+volumes:
+  pg_data:
+  redis_data:
+  downloads_data:
+
+networks:
+  my_network:
+    driver: bridge

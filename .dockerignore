@@ -1,0 +1,73 @@
+# Системные и скрытые файлы
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/venv/
+**/env/
+**/.git/
+**/.idea/
+**/.vscode/
+**/.DS_Store
+Thumbs.db
+
+# Логи и временные файлы
+*.log
+*.tmp
+**/logs/
+**/tmp/
+
+# Файлы зависимостей и окружения
+**/.env
+.env.local
+.env.*.local
+.env.docker
+*.env
+# poetry.lock  # ← только если вы используете `poetry install --no-root` или аналог; иначе нужен!
+# .pip-tools/
+
+# Тесты и документация (если не нужны в образе)
+tests/
+test_*.py
+conftest.py
+docs/
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Docker-файлы (если не нужны внутри контейнера)
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+
+# IDE и редакторы
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Бинарники и артефакты сборки
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Git и CI
+.gitignore
+.github/
+.gitlab-ci.yml
+.pre-commit-config.yaml
+Makefile  # ← только если не используется в контейнере
+
+# Локальные конфиги
+config/local/
+local_settings.py
+
+# Project files
+app/config/envs
+app/config/envs_template

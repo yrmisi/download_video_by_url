@@ -1,0 +1,21 @@
+from dataclasses import dataclass
+
+
+@dataclass
+class DownloadHistoryItems:
+    id: str
+    url: str
+    user_id: str
+    profile: str
+    quality: str
+
+
+@dataclass
+class UpdateLoadHistoryItems:
+    title: str | None = None
+    thumbnail: str | None = None
+    duration: int | None = None
+    resolution: str | None = None
+    file_path: str | None = None
+    filesize: int | None = None
+    status: str | None = None

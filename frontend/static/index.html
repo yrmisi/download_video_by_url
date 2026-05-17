@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💾</text></svg>" />
+    <title>MediaGrab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body class="flex items-center justify-center min-h-screen">
+    <div id="app" class="w-full max-w-xl p-6 card shadow-2xl overflow-y-auto">
+
+      <div id="step-input" class="text-center space-y-6">
+        <h1 class="text-3xl font-bold">MediaGrab</h1>
+        <p class="text-gray-400">Video & Audio Downloader</p>
+        <input type="text" id="video-url" placeholder="Paste URL..." class="w-full p-3 rounded bg-[#333] border border-gray-600 focus:outline-none focus:border-blue-500" />
+        <button onclick="fetchInfo()" id="btn-continue" class="bg-blue-600 hover:bg-blue-700 px-8 py-2 rounded font-medium transition">Continue</button>
+      </div>
+
+      <div id="history-section" class="mb-8 hidden">
+        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Recent Downloads</h3>
+        <div id="history-list" class="space-y-3">
+          </div>
+        <hr class="border-gray-700 my-6" />
+      </div>
+
+      <div id="step-preview" class="hidden space-y-6">
+        <h2 id="video-title" class="text-xl font-semibold text-center truncate"></h2>
+        <div class="relative aspect-video rounded-lg overflow-hidden bg-black">
+          <img id="video-thumb" src="" class="w-full h-full object-cover" alt="Video preview" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm text-gray-400 mb-2">Profile</label>
+            <select id="profile" class="w-full p-2 bg-[#333] border border-gray-600 rounded">
+              <option value="pc_tv">PC/TV (MKV/4K)</option>
+              <option value="legacy_tv">Legacy TV (MP4/H.264)</option>
+              <option value="mobile">Mobile (720p/MP4)</option>
+              <option value="mp4">Fast & Compatible (MP4)</option>
+              <option value="audio_only">Audio Only (MP3)</option>
+            </select>
+          </div>
+          <div>
+            <div id="quality-container">
+              <label class="block text-sm text-gray-400 mb-2">Quality Limit</label>
+              <select id="quality" class="w-full p-2 bg-[#333] border border-gray-600 rounded">
+                <option value="2160">2160p (4K)</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="360">360p</option>
+                <option value="240">240p</option>
+                <option value="144">144p</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-between pt-4">
+          <button onclick="showStep('input')" class="text-gray-400 hover:text-white">Back</button>
+          <button onclick="startDownload()" class="bg-blue-600 hover:bg-blue-700 px-10 py-2 rounded font-medium">Start</button>
+        </div>
+      </div>
+
+      <div id="step-progress" class="hidden space-y-6 text-center">
+        <h2 class="text-xl font-semibold">Downloads</h2>
+
+        <div id="progress-container" class="w-full bg-gray-700 rounded-full h-2.5 mt-4">
+          <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+
+        <div class="flex justify-between text-sm text-gray-400">
+          <span id="status-text">Starting...</span>
+          <span id="speed-text">0 MB/s</span>
+        </div>
+
+        <div id="download-ready-container" class="hidden mt-6">
+          <a id="download-link" href="#" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-10 py-3 rounded-lg font-bold shadow-lg transform transition hover:scale-105">💾 Download Ready</a>
+        </div>
+
+        <div class="pt-4">
+          <button id="action-button" onclick="cancelDownload()" class="bg-[#333] hover:bg-[#444] px-10 py-2 rounded transition">Stop</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+  </body>
+</html>

@@ -53,7 +53,8 @@ CMD ["granian", "app.main:app", \
      "--interface", "asgi", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
-     "--workers", "2", \
+     # оставляем один workers, что б не было конфликта из-за фоновых task по удаления
+     "--workers", "1", \
      "--runtime-threads", "1", \
      "--loop", "uvloop", \
      "--backlog", "1024", \

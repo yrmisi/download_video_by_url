@@ -84,6 +84,13 @@ class DownloadTaskService:
             logger.info(f"Task {self.task_id} was cancelled!")
             self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
             raise
+        except Exception as e:
+            logger.error(f"Task {self.task_id} failed: {e}")
+            error_data = {"status": "error", "msg": str(e)}
+            self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+            async with self.session_pool() as session:
+                await DownloadHistoryRepository(session).update(self.task_id, UpdateLoadHistoryItems(status="error"))
+            return
 
         # 3. ПОИСК ФАЙЛА (так как расширение могло измениться после FFmpeg)
         actual_filename: str = self._check_file_for_location(path, DOWNLOADS_DIR)

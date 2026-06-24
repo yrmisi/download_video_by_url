@@ -54,6 +54,11 @@ services:
       dockerfile: docker_build/backend/Dockerfile
     container_name: web
     restart: unless-stopped
+    dns:
+      # пойдут за резолвом YouTube напрямую к серверам в туннеле,
+      # минуя цепочку посредников Docker-WSL-Windows
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - app/config/envs/.env.app-prod
       - app/config/envs/.env.postgres-prod

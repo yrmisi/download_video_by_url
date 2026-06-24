@@ -33,6 +33,7 @@ class AppConfig(BaseSettings):
     state: StateConfig = StateConfig()
     timelife: TimeLifeConfig = TimeLifeConfig()
     windows_host_ip: Annotated[str | None, Field(alias="WINDOWS_HOST_IP")] = None
+    base_url_yt: str = "https://www.youtube.com/watch?v={video_id}"
 
     model_config = SettingsConfigDict(
         env_file=ENVS_DIR / ".env.app-prod",
@@ -72,6 +73,11 @@ class AppConfig(BaseSettings):
             "nocheckcertificate": True,  # Игнорируем капризы SSL при handshake
             "socket_timeout": 15,  # Даем время VPN «проснуться»
             "retries": 5,  # Количество повторов при сбоях
+            "legacy_server_connect": True,  # Фикс капризов старых/модифицированных TLS
+            "youtube_include_hls_manifest": False,  # Запрещаем запрашивать m3u8 манифесты для инфы
+            "extract_flat": (
+                "in_playlist"
+            ),  # извлекаем информацию в "плоском" режиме (быстрее и без лишних проверок)
         }
 
     @property

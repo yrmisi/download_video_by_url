@@ -55,6 +55,7 @@ class AppConfig(BaseSettings):
 
         # for developer in docker
         # Берет чистый IP '172.17.16.1' из переменной окружения
+        # если prod, то прокидывается None
         host_ip: str | None = self.windows_host_ip
         if host_ip:
             return f"socks5h://{host_ip}:1080"
@@ -68,6 +69,9 @@ class AppConfig(BaseSettings):
         return {
             "proxy": self.proxy_url,
             "quiet": True,
+            "nocheckcertificate": True,  # Игнорируем капризы SSL при handshake
+            "socket_timeout": 15,  # Даем время VPN «проснуться»
+            "retries": 5,  # Количество повторов при сбоях
         }
 
     @property
@@ -81,6 +85,12 @@ class AppConfig(BaseSettings):
             "noplaylist": True,
             "writethumbnail": True,
             "no_color": True,  # Отключает ANSI-коды (цвета) в выводе
+            # Сетевые настройки для стабильности через VPN:
+            "nocheckcertificate": True,
+            "socket_timeout": 15,
+            "retries": 10,
+            "fragment_retries": 10,  # Заставляем m3u8 не падать при обрывах
+            "file_access_retries": 3,
             "postprocessors": [
                 {"key": "EmbedThumbnail"},
                 {"key": "FFmpegMetadata"},

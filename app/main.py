@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Lifespan for the application.
     """

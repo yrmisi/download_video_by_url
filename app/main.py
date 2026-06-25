@@ -4,7 +4,11 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
+from app.core.limiter import limiter
 from app.database import async_engine
 from app.routers import (
     cancel_router,
@@ -46,6 +50,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="MediaGrab", lifespan=lifespan)
+
+# Интегрируем SlowAPI
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Too many requests",
+        },
+    )
+
 
 app.include_router(router=health_router)
 app.include_router(router=media_info_router, prefix="/api")

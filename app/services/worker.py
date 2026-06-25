@@ -34,6 +34,8 @@ class DownloadTaskService:
         session_pool,
         load_media: LoadMediaRequest,
         redis: Redis,
+        attempts: int = 3,
+        delay: int = 2,
     ) -> None:
         """
         Initialize the download task service.
@@ -42,6 +44,8 @@ class DownloadTaskService:
         self.session_pool = session_pool
         self.load_media = load_media
         self.r = redis
+        self.attempts = attempts
+        self.delay = delay
 
     async def run_download(self) -> None:
         """
@@ -70,27 +74,38 @@ class DownloadTaskService:
             self.repo = DownloadHistoryRepository(session)
             await self.repo.create(item)
 
-        try:
-            # 2. ЗАПУСКАЕМ ТОЛЬКО ОДИН РАЗ
-            # info — словарь с данными, path — ожидаемый путь файла
-            loop = asyncio.get_running_loop()
-            info, path = await loop.run_in_executor(
-                None,
-                execute_ydl,
-                ydl_opts,
-                str(self.load_media.url),
-            )
-        except asyncio.CancelledError:
-            logger.info(f"Task {self.task_id} was cancelled!")
-            self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
-            raise
-        except Exception as e:
-            logger.error(f"Task {self.task_id} failed: {e}")
-            error_data = {"status": "error", "msg": str(e)}
-            self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
-            async with self.session_pool() as session:
-                await DownloadHistoryRepository(session).update(self.task_id, UpdateLoadHistoryItems(status="error"))
-            return
+        for attempt in range(1, self.attempts + 1):
+            try:
+                # info — словарь с данными, path — ожидаемый путь файла
+                loop = asyncio.get_running_loop()
+                info, path = await loop.run_in_executor(
+                    None,
+                    execute_ydl,
+                    ydl_opts,
+                    str(self.load_media.url),
+                )
+                break  # Если скачалось успешно — выходим из цикла попыток
+            except asyncio.CancelledError:
+                logger.info(f"Task {self.task_id} was cancelled!")
+                self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
+                raise
+            except Exception as e:
+                if attempt == self.attempts:
+                    # Это была последняя попытка, фиксируем критическую ошибку
+                    logger.error(f"Task {self.task_id} failed after {self.attempts} attempts: {e}")
+                    error_data = {"status": "error", "msg": str(e)}
+                    self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+                    async with self.session_pool() as session:
+                        await DownloadHistoryRepository(session).update(
+                            self.task_id, UpdateLoadHistoryItems(status="error")
+                        )
+                    return
+
+                logger.warning(
+                    f"Attempt {attempt} for task {self.task_id} failed: {e}. Retrying in {self.delay}s..."
+                )
+                await asyncio.sleep(self.delay)
+                self.delay *= 2  # Экспоненциальное увеличение паузы (2с -> 4с)
 
         # 3. ПОИСК ФАЙЛА (так как расширение могло измениться после FFmpeg)
         actual_filename: str = self._check_file_for_location(path, DOWNLOADS_DIR)

@@ -32,6 +32,14 @@ function formatDuration(seconds) {
   return ret;
 }
 
+// Безопасное экранирование HTML строк
+function escapeHtml(text) {
+  if (!text) return "";
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // Повторный запуск из блока истории
 async function reDownload(url) {
   if (!url) return;
@@ -61,15 +69,23 @@ async function fetchHistory() {
 
     historySection.classList.remove("hidden");
 
+    // Находим этот блок внутри fetchHistory() и обновляем:
     historyList.innerHTML = history
       .map((item) => {
         const id = item.id;
         const downloadUrl = "/api/files/" + id;
 
-        let html = `<div data-url="${item.url}" onclick="reDownload(this.dataset.url)" class="flex items-center space-x-4 bg-[#333] p-3 rounded-lg hover:bg-[#383838] transition border border-transparent hover:border-gray-600 cursor-pointer group">`;
+        // Экранируем URL для data-атрибута
+        const safeUrl = escapeHtml(item.url);
+        const safeTitle = escapeHtml(item.title || "Untitled");
+        const safeResolution = escapeHtml(item.resolution || "N/A");
+        const safeStatus = escapeHtml(item.status);
+
+        let html = `<div data-url="${safeUrl}" onclick="reDownload(this.dataset.url)" class="flex items-center space-x-4 bg-[#333] p-3 rounded-lg hover:bg-[#383838] transition border border-transparent hover:border-gray-600 cursor-pointer group">`;
 
         html += '<div class="relative w-16 h-10 flex-shrink-0">';
-        html += `<img src="${item.thumbnail}" class="w-full h-full object-cover rounded shadow-md" onerror="this.src='https://via.placeholder.com/64x40?text=Video'">`;
+        // Атрибуты src тоже желательно контролировать, но здесь мы экранируем через fallback
+        html += `<img src="${escapeHtml(item.thumbnail)}" class="w-full h-full object-cover rounded shadow-md" onerror="this.src='https://via.placeholder.com/64x40?text=Video'">`;
 
         if (item.duration) {
           html +=
@@ -80,16 +96,13 @@ async function fetchHistory() {
         html += "</div>";
 
         html += '<div class="flex-1 min-w-0">';
-        html +=
-          '<p class="text-sm font-medium truncate">' +
-          (item.title || "Untitled") +
-          "</p>";
+        // ЗАЩИТА: выводим безопасный заголовок
+        html += `<p class="text-sm font-medium truncate">${safeTitle}</p>`;
+
         html +=
           '<div class="flex items-center text-xs text-gray-400 space-x-2">';
-        html +=
-          '<span class="bg-gray-700 px-1 rounded">' +
-          (item.resolution || "N/A") +
-          "</span>";
+        // ЗАЩИТА: безопасное разрешение
+        html += `<span class="bg-gray-700 px-1 rounded">${safeResolution}</span>`;
         html += "<span>•</span>";
         html +=
           "<span>" +
@@ -99,7 +112,9 @@ async function fetchHistory() {
 
         let statusColor = "text-blue-400";
         if (item.status === "deleted") statusColor = "text-red-400";
-        html += `<span class="${statusColor}">${item.status}</span>`;
+
+        // ЗАЩИТА: безопасный статус
+        html += `<span class="${statusColor}">${safeStatus}</span>`;
         html += "</div></div>";
 
         if (item.status === "finished") {
@@ -139,13 +154,31 @@ function showStep(step) {
   }
 }
 
-// Получение информации о медиафайле с обработкой ошибок бэкенда
+// Получение информации о медиафайле с профессиональной индикацией загрузки
 async function fetchInfo() {
-  const url = document.getElementById("video-url").value;
+  const urlInput = document.getElementById("video-url");
+  const url = urlInput.value.trim(); // Защита от случайных пробелов
   if (!url) return alert("Enter URL");
 
   const btn = document.getElementById("btn-continue");
-  btn.innerText = "Loading...";
+
+  // 1. Входим в состояние загрузки: блокируем элементы управления
+  btn.disabled = true;
+  urlInput.disabled = true;
+
+  // Добавляем понятный UX: меняем курсор и делаем элементы визуально "занятыми"
+  btn.classList.add("opacity-70", "cursor-not-allowed");
+  urlInput.classList.add("opacity-50", "cursor-not-allowed");
+
+  // Сохраняем исходный текст, чтобы вернуть его позже, и вставляем красивый SVG-спиннер
+  const originalBtnText = btn.innerHTML;
+  btn.innerHTML = `
+    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    Extracting info...
+  `;
 
   try {
     const response = await fetch("/api/extract-info", {
@@ -156,19 +189,18 @@ async function fetchInfo() {
 
     const data = await response.json();
 
-    // 1. ПЕРВЫМ ДЕЛОМ проверяем статус ответа бэкенда (200-299)
+    // Проверяем статус ответа бэкенда
     if (!response.ok) {
       alert(data.detail || "Error fetching video info from server");
-      return; // Жесткий выход, дальше код гарантированно не пойдет
+      return;
     }
 
-    // 2. Дополнительная проверка: если бэкенд ответил 200, но данные пустые
     if (!data || !data.thumbnail) {
       alert("Сервер вернул пустые данные или отсутствует превью.");
       return;
     }
 
-    // 3. Только если всё отлично — обновляем DOM
+    // Обновляем DOM данными из ответа
     document.getElementById("video-title").innerText = data.title || "Untitled";
     document.getElementById("video-thumb").src = data.thumbnail;
 
@@ -208,7 +240,15 @@ async function fetchInfo() {
     console.error("Fetch error:", e);
     alert("Network error or server is down");
   } finally {
-    btn.innerText = "Continue";
+    // 2. Гарантированно возвращаем интерфейс в рабочее состояние в блоке finally
+    btn.disabled = false;
+    urlInput.disabled = false;
+
+    btn.classList.remove("opacity-70", "cursor-not-allowed");
+    urlInput.classList.remove("opacity-50", "cursor-not-allowed");
+
+    // Возвращаем дефолтный текст кнопки (например, "Continue")
+    btn.innerHTML = originalBtnText;
   }
 }
 
@@ -289,7 +329,7 @@ async function cancelDownload() {
   }
 }
 
-// Лонг-пуллинг статуса задачи из бэкенда/Redis
+// Лонг-пуллинг статуса задачи из бэкенда/Redis с защитой от зависаний
 function pollStatus() {
   const progressBar = document.getElementById("progress-bar");
   const statusText = document.getElementById("status-text");
@@ -298,10 +338,36 @@ function pollStatus() {
   const downloadLink = document.getElementById("download-link");
   const progressContainer = document.getElementById("progress-container");
 
+  let retries = 0;
+  const MAX_RETRIES = 30; // Максимум 30 секунд без связи до полной остановки
+
   const interval = setInterval(async () => {
+    // На всякий случай проверяем, есть ли ID задачи
+    if (!currentTaskId) {
+      clearInterval(interval);
+      return;
+    }
+
+    const controller = new AbortController();
+    // Тайм-аут на 5 секунд для самого сетевого запроса
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
-      const response = await fetch(`/api/status/${currentTaskId}`);
+      const response = await fetch(`/api/status/${currentTaskId}`, {
+        signal: controller.signal,
+      });
+
+      // Запрос завершился, очищаем тайм-аут контроллера
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+
       const data = await response.json();
+
+      // Успешный ответ получен — сбрасываем счетчик ошибок связи
+      retries = 0;
 
       if (data.status === "downloading") {
         progressBar.classList.remove("animate-pulse");
@@ -315,6 +381,7 @@ function pollStatus() {
         statusText.innerText = data.msg || "Processing...";
         speedText.innerText = "FFmpeg";
       } else if (data.status === "finished") {
+        // Обязательно очищаем интервал при успешном завершении!
         clearInterval(interval);
 
         progressBar.style.width = "100%";
@@ -341,9 +408,28 @@ function pollStatus() {
         }
       }
     } catch (e) {
-      console.error("Polling error:", e);
-      clearInterval(interval);
-      statusText.innerText = "Connection lost";
+      // Обязательно чистим тайм-аут, если упали по другой ошибке до 5 секунд
+      clearTimeout(timeoutId);
+
+      retries++;
+
+      if (e.name === "AbortError") {
+        console.warn(
+          `Polling request timed out (5s limit reached). Retry ${retries}/${MAX_RETRIES}`,
+        );
+        statusText.innerText = "Responding slowly...";
+      } else {
+        console.error("Polling network error:", e);
+        statusText.innerText = `Connection lost... (${MAX_RETRIES - retries}s)`;
+      }
+
+      // Если лимит превышен — уничтожаем таймер, чтобы не спамить
+      if (retries >= MAX_RETRIES) {
+        clearInterval(interval);
+        statusText.innerText = "Connection timeout. Please refresh page.";
+        speedText.innerText = "Error";
+        progressBar.classList.add("bg-red-500"); // Опционально: подсветим ошибку красным
+      }
     }
   }, 1000);
 }

@@ -69,7 +69,6 @@ async function fetchHistory() {
 
     historySection.classList.remove("hidden");
 
-    // Находим этот блок внутри fetchHistory() и обновляем:
     historyList.innerHTML = history
       .map((item) => {
         const id = item.id;
@@ -84,7 +83,6 @@ async function fetchHistory() {
         let html = `<div data-url="${safeUrl}" onclick="reDownload(this.dataset.url)" class="flex items-center space-x-4 bg-[#333] p-3 rounded-lg hover:bg-[#383838] transition border border-transparent hover:border-gray-600 cursor-pointer group">`;
 
         html += '<div class="relative w-16 h-10 flex-shrink-0">';
-        // Атрибуты src тоже желательно контролировать, но здесь мы экранируем через fallback
         html += `<img src="${escapeHtml(item.thumbnail)}" class="w-full h-full object-cover rounded shadow-md" onerror="this.src='https://via.placeholder.com/64x40?text=Video'">`;
 
         if (item.duration) {
@@ -96,12 +94,10 @@ async function fetchHistory() {
         html += "</div>";
 
         html += '<div class="flex-1 min-w-0">';
-        // ЗАЩИТА: выводим безопасный заголовок
-        html += `<p class="text-sm font-medium truncate">${safeTitle}</p>`;
+        html += `<p class="text-sm font-medium truncate text-gray-200">${safeTitle}</p>`;
 
         html +=
           '<div class="flex items-center text-xs text-gray-400 space-x-2">';
-        // ЗАЩИТА: безопасное разрешение
         html += `<span class="bg-gray-700 px-1 rounded">${safeResolution}</span>`;
         html += "<span>•</span>";
         html +=
@@ -113,7 +109,6 @@ async function fetchHistory() {
         let statusColor = "text-blue-400";
         if (item.status === "deleted") statusColor = "text-red-400";
 
-        // ЗАЩИТА: безопасный статус
         html += `<span class="${statusColor}">${safeStatus}</span>`;
         html += "</div></div>";
 
@@ -138,13 +133,22 @@ async function fetchHistory() {
   }
 }
 
-// Навигация по шагам интерфейса
+// Навигация по шагам интерфейса с управлением фокусом
 function showStep(step) {
-  document.getElementById("step-input").classList.add("hidden");
-  document.getElementById("step-preview").classList.add("hidden");
-  document.getElementById("step-progress").classList.add("hidden");
+  const stepInput = document.getElementById("step-input");
+  const stepPreview = document.getElementById("step-preview");
+  const stepProgress = document.getElementById("step-progress");
 
-  document.getElementById("step-" + step).classList.remove("hidden");
+  stepInput.classList.add("hidden");
+  stepPreview.classList.add("hidden");
+  stepProgress.classList.add("hidden");
+
+  const activeStepContainer = document.getElementById("step-" + step);
+  if (activeStepContainer) {
+    activeStepContainer.classList.remove("hidden");
+    // Переносим фокус на новый контейнер для экранных дикторов
+    activeStepContainer.focus();
+  }
 
   const historySection = document.getElementById("history-section");
   if (step === "input") {
@@ -154,7 +158,7 @@ function showStep(step) {
   }
 }
 
-// Получение информации о медиафайле с профессиональной индикацией загрузки
+// Получение информации о медиафайле с профессиональной индикацией загрузки и a11y
 async function fetchInfo() {
   const urlInput = document.getElementById("video-url");
   const url = urlInput.value.trim(); // Защита от случайных пробелов
@@ -165,12 +169,13 @@ async function fetchInfo() {
   // 1. Входим в состояние загрузки: блокируем элементы управления
   btn.disabled = true;
   urlInput.disabled = true;
+  btn.setAttribute("aria-disabled", "true"); // Сигнал диктору
 
   // Добавляем понятный UX: меняем курсор и делаем элементы визуально "занятыми"
   btn.classList.add("opacity-70", "cursor-not-allowed");
   urlInput.classList.add("opacity-50", "cursor-not-allowed");
 
-  // Сохраняем исходный текст, чтобы вернуть его позже, и вставляем красивый SVG-спиннер
+  // Сохраняем исходный контент кнопки и вставляем красивый SVG-спиннер
   const originalBtnText = btn.innerHTML;
   btn.innerHTML = `
     <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -240,14 +245,14 @@ async function fetchInfo() {
     console.error("Fetch error:", e);
     alert("Network error or server is down");
   } finally {
-    // 2. Гарантированно возвращаем интерфейс в рабочее состояние в блоке finally
+    // 2. Гарантированно возвращаем интерфейс в рабочее состояние
     btn.disabled = false;
     urlInput.disabled = false;
+    btn.removeAttribute("aria-disabled");
 
     btn.classList.remove("opacity-70", "cursor-not-allowed");
     urlInput.classList.remove("opacity-50", "cursor-not-allowed");
 
-    // Возвращаем дефолтный текст кнопки (например, "Continue")
     btn.innerHTML = originalBtnText;
   }
 }
@@ -339,17 +344,15 @@ function pollStatus() {
   const progressContainer = document.getElementById("progress-container");
 
   let retries = 0;
-  const MAX_RETRIES = 30; // Максимум 30 секунд без связи до полной остановки
+  const MAX_RETRIES = 30;
 
   const interval = setInterval(async () => {
-    // На всякий случай проверяем, есть ли ID задачи
     if (!currentTaskId) {
       clearInterval(interval);
       return;
     }
 
     const controller = new AbortController();
-    // Тайм-аут на 5 секунд для самого сетевого запроса
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
@@ -357,7 +360,6 @@ function pollStatus() {
         signal: controller.signal,
       });
 
-      // Запрос завершился, очищаем тайм-аут контроллера
       clearTimeout(timeoutId);
 
       if (!response.ok) {
@@ -365,28 +367,32 @@ function pollStatus() {
       }
 
       const data = await response.json();
-
-      // Успешный ответ получен — сбрасываем счетчик ошибок связи
       retries = 0;
 
       if (data.status === "downloading") {
         progressBar.classList.remove("animate-pulse");
         const percent = data.percent || "0%";
         progressBar.style.width = percent;
+
+        // Синхронизируем значение для скринридеров
+        progressBar.setAttribute("aria-valuenow", parseInt(percent) || 0);
+
         statusText.innerText = `Downloading: ${percent}`;
         speedText.innerText = data.speed || "0 MB/s";
       } else if (data.status === "processing") {
         progressBar.style.width = "100%";
+        progressBar.setAttribute("aria-valuenow", 100);
         progressBar.classList.add("animate-pulse");
-        statusText.innerText = data.msg || "Processing...";
+
+        statusText.innerText = data.msg || "Processing video via FFmpeg...";
         speedText.innerText = "FFmpeg";
       } else if (data.status === "finished") {
-        // Обязательно очищаем интервал при успешном завершении!
-        clearInterval(interval);
+        clearInterval(interval); // Чистим интервал строго один раз
 
         progressBar.style.width = "100%";
+        progressBar.setAttribute("aria-valuenow", 100);
         progressBar.classList.remove("animate-pulse");
-        statusText.innerText = "All set!";
+        statusText.innerText = "All set! Your download is ready.";
         speedText.innerText = "Done";
 
         const actionBtn = document.getElementById("action-button");
@@ -408,14 +414,12 @@ function pollStatus() {
         }
       }
     } catch (e) {
-      // Обязательно чистим тайм-аут, если упали по другой ошибке до 5 секунд
       clearTimeout(timeoutId);
-
       retries++;
 
       if (e.name === "AbortError") {
         console.warn(
-          `Polling request timed out (5s limit reached). Retry ${retries}/${MAX_RETRIES}`,
+          `Polling request timed out. Retry ${retries}/${MAX_RETRIES}`,
         );
         statusText.innerText = "Responding slowly...";
       } else {
@@ -423,12 +427,11 @@ function pollStatus() {
         statusText.innerText = `Connection lost... (${MAX_RETRIES - retries}s)`;
       }
 
-      // Если лимит превышен — уничтожаем таймер, чтобы не спамить
       if (retries >= MAX_RETRIES) {
         clearInterval(interval);
         statusText.innerText = "Connection timeout. Please refresh page.";
         speedText.innerText = "Error";
-        progressBar.classList.add("bg-red-500"); // Опционально: подсветим ошибку красным
+        progressBar.classList.add("bg-red-500");
       }
     }
   }, 1000);

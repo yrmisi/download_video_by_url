@@ -49,15 +49,16 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["granian", "app.main:app", \
-     "--interface", "asgi", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     # оставляем один workers, что б не было конфликта из-за фоновых task по удаления
-     "--workers", "1", \
-     "--runtime-threads", "1", \
-     "--loop", "uvloop", \
-     "--backlog", "1024", \
-     "--backpressure", "128", \
-     "--log-level", "warning", \
-     "--access-log"]
+# Динамический запуск: по умолчанию стартует веб-сервер с возможностью переопределения через ENV
+CMD ["sh", "-c", \
+    "granian app.main:app \
+    --interface asgi \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers ${WORKERS:-4} \
+    --runtime-threads ${THREADS:-1} \
+    --loop uvloop \
+    --backlog 1024 \
+    --backpressure 128 \
+    --log-level warning \
+    --access-log"]

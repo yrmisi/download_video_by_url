@@ -63,6 +63,8 @@ services:
       - app/config/envs/.env.app-prod
       - app/config/envs/.env.postgres-prod
       - app/config/envs/.env.redis-prod
+    environment:
+      - RUN_BACKGROUND_TASKS=False # жестко выключаем очистку
     ports:
       - "8000:8000"
     volumes:
@@ -78,6 +80,35 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - my_network
+  # КРОН / ВОРКЕР ОЧИСТКИ (Работает в 1 поток для очистки файлов)
+  cron_worker:
+    build:
+      context: .
+      dockerfile: docker_build/backend/Dockerfile
+    container_name: cron_worker
+    restart: unless-stopped
+    env_file:
+      - app/config/envs/.env.app-prod
+      - app/config/envs/.env.postgres-prod
+      - app/config/envs/.env.redis-prod
+    environment:
+      # Переопределяем воркеры в 1, чтобы не плодить процессы очистки,
+      # и разрешаем фоновые таски
+      - WORKERS=1
+      - THREADS=1
+      - RUN_BACKGROUND_TASKS=True
+    volumes:
+      - downloads_data:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    # Если логика очистки встроена в само приложение и запускается при старте,
+    # команду (command) можно даже не переопределять, она возьмет CMD из Dockerfile,
+    # но отработает в один поток и с включенным флагом задач.
     networks:
       - my_network
   nginx:

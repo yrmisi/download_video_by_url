@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -28,48 +29,57 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Lifespan for the application.
     """
-    logger.info("Starting up background cleanup tasks...")
+    # Читаем флаг из окружения. По умолчанию выключен, чтобы случайно не запустить на dev в 4 воркера
+    run_cleanup = os.getenv("RUN_BACKGROUND_TASKS", "False").lower() in ("true", "1", "yes")
 
-    # Создаем ивент для сигнализации о закрытии приложения
-    shutdown_event = asyncio.Event()
-    app.state.shutdown_event = shutdown_event
+    shutdown_event = None
 
-    cleanup_service = FileCleanupService()
+    if run_cleanup:
+        logger.info("Starting up background cleanup tasks (Worker mode)...")
 
-    # Передаем ивент в задачи (или сам сервис)
-    app.state.cleanup_expired_task = asyncio.create_task(
-        cleanup_service.clean_expired_downloads(shutdown_event)
-    )
-    app.state.cleanup_trash_task = asyncio.create_task(
-        cleanup_service.clean_daily_trash(shutdown_event)
-    )
+        # Создаем ивент для сигнализации о закрытии приложения
+        shutdown_event = asyncio.Event()
+        app.state.shutdown_event = shutdown_event
+
+        cleanup_service = FileCleanupService()
+
+        # Передаем ивент в задачи (или сам сервис)
+        app.state.cleanup_expired_task = asyncio.create_task(
+            cleanup_service.clean_expired_downloads(shutdown_event)
+        )
+        app.state.cleanup_trash_task = asyncio.create_task(
+            cleanup_service.clean_daily_trash(shutdown_event)
+        )
+    else:
+        logger.info("Background cleanup tasks are DISABLED (Web server mode).")
 
     yield
 
-    logger.info("Gracefully shutting down cleanup tasks...")
+    if run_cleanup and shutdown_event:
+        logger.info("Gracefully shutting down cleanup tasks...")
 
-    # Сигнализируем задачам, что пора закругляться
-    shutdown_event.set()
+        # Сигнализируем задачам, что пора закругляться
+        shutdown_event.set()
 
-    # Ждем, пока они завершат текущую итерацию удаления
-    try:
-        await asyncio.wait_for(
-            asyncio.gather(
+        # Ждем, пока они завершат текущую итерацию удаления
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    app.state.cleanup_expired_task,
+                    app.state.cleanup_trash_task,
+                    return_exceptions=True,
+                ),
+                timeout=10.0,  # 10 секунд более чем достаточно для удаления файлов
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Cleanup tasks did not finish gracefully in time, forcing cancel")
+            app.state.cleanup_expired_task.cancel()
+            app.state.cleanup_trash_task.cancel()
+            await asyncio.gather(
                 app.state.cleanup_expired_task,
                 app.state.cleanup_trash_task,
                 return_exceptions=True,
-            ),
-            timeout=10.0, # 10 секунд более чем достаточно для удаления файлов
-        )
-    except asyncio.TimeoutError:
-        logger.warning("Cleanup tasks did not finish gracefully in time, forcing cancel")
-        app.state.cleanup_expired_task.cancel()
-        app.state.cleanup_trash_task.cancel()
-        await asyncio.gather(
-            app.state.cleanup_expired_task,
-            app.state.cleanup_trash_task,
-            return_exceptions=True,
-        )
+            )
 
     # В самую последнюю очередь закрываем коннекты к БД
     await async_engine.dispose()

@@ -30,23 +30,50 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logger.info("Starting up background cleanup tasks...")
 
+    # Создаем ивент для сигнализации о закрытии приложения
+    shutdown_event = asyncio.Event()
+    app.state.shutdown_event = shutdown_event
+
     cleanup_service = FileCleanupService()
 
-    app.state.cleanup_expired_task = asyncio.create_task(cleanup_service.clean_expired_downloads())
-    app.state.cleanup_trash_task = asyncio.create_task(cleanup_service.clean_daily_trash())
+    # Передаем ивент в задачи (или сам сервис)
+    app.state.cleanup_expired_task = asyncio.create_task(
+        cleanup_service.clean_expired_downloads(shutdown_event)
+    )
+    app.state.cleanup_trash_task = asyncio.create_task(
+        cleanup_service.clean_daily_trash(shutdown_event)
+    )
 
     yield
 
-    await async_engine.dispose()
+    logger.info("Gracefully shutting down cleanup tasks...")
 
-    logger.info("Shutting down background cleanup tasks...")
-    app.state.cleanup_expired_task.cancel()
-    app.state.cleanup_trash_task.cancel()
-    await asyncio.gather(
-        app.state.cleanup_expired_task,
-        app.state.cleanup_trash_task,
-        return_exceptions=True,
-    )
+    # Сигнализируем задачам, что пора закругляться
+    shutdown_event.set()
+
+    # Ждем, пока они завершат текущую итерацию удаления
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(
+                app.state.cleanup_expired_task,
+                app.state.cleanup_trash_task,
+                return_exceptions=True,
+            ),
+            timeout=10.0, # 10 секунд более чем достаточно для удаления файлов
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Cleanup tasks did not finish gracefully in time, forcing cancel")
+        app.state.cleanup_expired_task.cancel()
+        app.state.cleanup_trash_task.cancel()
+        await asyncio.gather(
+            app.state.cleanup_expired_task,
+            app.state.cleanup_trash_task,
+            return_exceptions=True,
+        )
+
+    # В самую последнюю очередь закрываем коннекты к БД
+    await async_engine.dispose()
+    logger.info("Application lifespan shutdown complete.")
 
 
 app = FastAPI(title="MediaGrab", lifespan=lifespan)

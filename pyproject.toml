@@ -9,6 +9,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "fastapi>=0.136.1",
     "granian>=2.7.4",
+    "prometheus-fastapi-instrumentator>=8.0.2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.0",
     "redis[hiredis]>=7.4.0",

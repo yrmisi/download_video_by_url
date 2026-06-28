@@ -1,3 +1,10 @@
+# Глобальные настройки логирования для всех контейнеров
+x-logging: &default-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m" # Один файл лога не больше 10 МБ
+      max-file: "3" # Хранить не более 3 файлов для каждого контейнера
 services:
   db:
     image: postgres:18.3-alpine3.23
@@ -16,6 +23,7 @@ services:
       retries: 3
     networks:
       - my_network
+    <<: *default-logging
   migrations:
     build:
       context: .
@@ -31,6 +39,7 @@ services:
       sh -c "alembic upgrade head"
     networks:
       - my_network
+    <<: *default-logging
   redis:
     image: redis:8.6.3-alpine3.23
     container_name: redis
@@ -48,6 +57,7 @@ services:
       retries: 3
     networks:
     - my_network
+    <<: *default-logging
   web:
     build:
       context: .
@@ -82,6 +92,7 @@ services:
       start_period: 10s
     networks:
       - my_network
+    <<: *default-logging
   # КРОН / ВОРКЕР ОЧИСТКИ (Работает в 1 поток для очистки файлов)
   cron_worker:
     build:
@@ -89,6 +100,10 @@ services:
       dockerfile: docker_build/backend/Dockerfile
     container_name: cron_worker
     restart: unless-stopped
+    dns:
+      # добавлен dns для cron_worker, так как он тоже может обращаться к внешним сервисам, как и web
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - app/config/envs/.env.app-prod
       - app/config/envs/.env.postgres-prod
@@ -111,6 +126,7 @@ services:
     # но отработает в один поток и с включенным флагом задач.
     networks:
       - my_network
+    <<: *default-logging
   nginx:
     build:
       context: .
@@ -132,6 +148,7 @@ services:
         condition: service_healthy
     networks:
       - my_network
+    <<: *default-logging
 
 volumes:
   pg_data:

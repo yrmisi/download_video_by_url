@@ -156,7 +156,7 @@ services:
     restart: unless-stopped
     volumes:
       # Монтируем созданный конфиг
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     depends_on:
       web:
@@ -171,6 +171,8 @@ services:
     ports:
       - "3000:3000" # Открываем веб-интерфейс Grafana наружу
     volumes:
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus

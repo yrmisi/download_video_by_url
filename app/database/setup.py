@@ -8,6 +8,8 @@ async_engine = create_async_engine(
     pool_pre_ping=settings.db.sqla.pool_pre_ping,
     pool_size=settings.db.sqla.pool_size,
     max_overflow=settings.db.sqla.max_overflow,
+    pool_timeout=settings.db.sqla.pool_timeout,
+    pool_recycle=settings.db.sqla.pool_recycle,
 )
 
 session_pool = async_sessionmaker(

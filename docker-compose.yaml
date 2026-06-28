@@ -36,7 +36,8 @@ services:
         condition: service_healthy
     # Переопределяем команду: выполняем миграцию и выходим
     command: >
-      sh -c "alembic upgrade head"
+      sh -c
+      "alembic upgrade head"
     networks:
       - my_network
     <<: *default-logging
@@ -44,10 +45,17 @@ services:
     image: redis:8.6.3-alpine3.23
     container_name: redis
     restart: unless-stopped
+    # persistence configuration: защищает от потери данных и риска утечки памяти.
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
     env_file:
     - app/config/envs/.env.redis-prod
     ports:
-      - "6379:6379"
+      # доступен только локально внутри машины
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

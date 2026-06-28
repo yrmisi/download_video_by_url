@@ -149,11 +149,41 @@ services:
     networks:
       - my_network
     <<: *default-logging
+  # === БЛОК МОНИТОРИНГА ===
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      # Монтируем созданный конфиг
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - my_network
+    <<: *default-logging
+  grafana:
+    image: grafana/grafana:13.0.3-slim
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000" # Открываем веб-интерфейс Grafana наружу
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - my_network
+    <<: *default-logging
 
 volumes:
   pg_data:
   redis_data:
   downloads_data:
+  prometheus_data: # Изолированный volume для хранения истории метрик
+  grafana_data:    # Изолированный volume для хранения дашбордов и настроек
 
 networks:
   my_network:

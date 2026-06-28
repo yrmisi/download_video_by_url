@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -109,6 +110,9 @@ app.include_router(router=load_media_router, prefix="/api")
 app.include_router(router=history_router, prefix="/api")
 app.include_router(router=cancel_router, prefix="/api")
 app.include_router(router=load_files_router, prefix="/api")
+
+# Инициализируем сбор метрик (подсчет HTTP запросов, ошибок, latency)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # for development
 # app.mount("/files", StaticFiles(directory=DOWNLOADS_DIR), name="files")

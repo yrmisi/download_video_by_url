@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
@@ -110,6 +111,29 @@ app.include_router(router=load_media_router, prefix="/api")
 app.include_router(router=history_router, prefix="/api")
 app.include_router(router=cancel_router, prefix="/api")
 app.include_router(router=load_files_router, prefix="/api")
+
+# Настройка CORS
+# На dev можно использовать "http://localhost:8000,http://localhost:5173"
+# На prod — конкретный домен фронтенда
+raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+if raw_origins:
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+else:
+    # Если переменная пустая, по умолчанию в целях безопасности разрешаем только localhost
+    origins = ["http://localhost", "http://localhost:8000"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=[
+        "GET",
+        "POST",
+        "DELETE",
+        "OPTIONS",
+    ],  # OPTIONS нужен для preflight-запросов браузера
+    allow_headers=["*"],
+)
 
 # Инициализируем сбор метрик (подсчет HTTP запросов, ошибок, latency)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")

@@ -3,6 +3,10 @@ from dataclasses import dataclass
 
 @dataclass
 class DownloadHistoryItems:
+    """
+    Data structure for creating new download history records.
+    """
+
     id: str
     url: str
     user_id: str
@@ -12,6 +16,10 @@ class DownloadHistoryItems:
 
 @dataclass
 class UpdateLoadHistoryItems:
+    """
+    Data structure for updating existing download history records.
+    """
+
     title: str | None = None
     thumbnail: str | None = None
     duration: int | None = None

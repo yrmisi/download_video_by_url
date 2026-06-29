@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class MediaInfoService:
+    """
+    Service for extracting and caching media metadata.
+    """
+
     def __init__(self, async_redis_client: Redis) -> None:
         self.async_r = async_redis_client
 

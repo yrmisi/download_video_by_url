@@ -15,6 +15,7 @@ async def cancel_download(
     """
     Endpoint to cancel an ongoing download.
     """
+
     stopped_task: StoppedTaskServices = StoppedTaskServices(session, r)
     await stopped_task.stop_download(task_id)
     return {"status": "ok"}

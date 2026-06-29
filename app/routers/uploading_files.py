@@ -16,6 +16,7 @@ async def download_file(
     """
     Endpoint to serve the downloaded file.
     """
+
     friendly_filename: FriendlyFileNameService = FriendlyFileNameService(task_id, session)
     data: FileData = await friendly_filename.get_file_data()
     return FileResponse(

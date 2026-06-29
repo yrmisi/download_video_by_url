@@ -10,7 +10,10 @@ DOWNLOAD_SEMAPHORE = asyncio.Semaphore(3)
 
 
 async def running_task(task_id: str, download_task: DownloadTaskService) -> None:
-    """ """
+    """
+    Register and manage active download tasks with concurrency control.
+    """
+
     async with DOWNLOAD_SEMAPHORE:
         # Создаем asyncio задачу вручную
         loop_task = asyncio.create_task(download_task.run_download())

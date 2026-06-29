@@ -18,7 +18,10 @@ async def extract_info(
     load_media: LoadMediaRequest,
     async_r: AsyncRedisDep,
 ) -> dict[str, str | int]:
-    """Endpoint to extract media information from a URL."""
+    """
+    Endpoint to extract media information from a URL.
+    """
+
     try:
         service: MediaInfoService = MediaInfoService(async_r)
         media_info: MediaInfo = await service.get_media_info(str(load_media.url))

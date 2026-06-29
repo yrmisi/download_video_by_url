@@ -1,3 +1,7 @@
+"""
+Path configuration for the application.
+"""
+
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent

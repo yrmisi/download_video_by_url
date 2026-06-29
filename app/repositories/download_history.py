@@ -10,6 +10,10 @@ from app.schemas import DownloadHistoryItems, UpdateLoadHistoryItems
 
 
 class DownloadHistoryRepository:
+    """
+    Repository for managing download history database operations.
+    """
+
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
@@ -53,7 +57,10 @@ class DownloadHistoryRepository:
         return result.scalars().all()
 
     async def get_record_create_hour_ago(self, hours: int = 1) -> Sequence[DownloadTask]:
-        """ """
+        """
+        Retrieve finished downloads completed more than specified hours ago.
+        """
+
         time_threshold = datetime.now(timezone.utc) - timedelta(hours=hours)
         stmt = select(DownloadTask).where(
             DownloadTask.status == "finished",

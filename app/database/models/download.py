@@ -5,7 +5,9 @@ from .base import Base
 
 
 class DownloadTask(Base):
-    """ """
+    """
+    Database model representing a media download task.
+    """
 
     __tablename__ = "download_history"
 
@@ -31,7 +33,10 @@ class DownloadTask(Base):
     )
 
     def to_dict(self) -> dict[str, str | int | None]:
-        """ """
+        """
+        Convert model instance to dictionary representation.
+        """
+
         return {
             "id": str(self.id),
             "url": self.url,

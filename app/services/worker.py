@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
 from app.core.ytdlp.callbacks import postprocessor_hook, progress_hook
-from app.core.ytdlp.executor import execute_ydl
+from app.core.ytdlp.executor import execute_ydl, get_raw_extract_info
 from app.repositories import DownloadHistoryRepository
 from app.schemas import (
     DownloadHistoryItems,
@@ -74,6 +74,11 @@ class DownloadTaskService:
         async with self.session_pool() as session:
             self.repo = DownloadHistoryRepository(session)
             await self.repo.create(item)
+
+        # Проверка лимита размера файла
+        is_valid: bool = await self._assert_file_size_limit()
+        if not is_valid:
+            return
 
         for attempt in range(1, self.attempts + 1):
             try:
@@ -231,3 +236,51 @@ class DownloadTaskService:
         if os.path.exists(full_path):
             physical_size = os.path.getsize(full_path)
         return physical_size or info.get("filesize") or info.get("filesize_approx") or 0
+
+    async def _assert_file_size_limit(self) -> bool:
+        """
+        Checks the file size before downloading.
+        Returns True if the file is within limits, False otherwise.
+        """
+        try:
+            logger.info(f"Checking file size for task {self.task_id} before download...")
+
+            loop = asyncio.get_running_loop()
+            # Получаем плоскую инфу без скачивания контента
+            raw_info: Mapping[str, Any] = await loop.run_in_executor(
+                None,
+                get_raw_extract_info,
+                str(self.load_media.url),
+                settings.app.base_ydl_opts,
+                False,
+            )
+
+            # Извлекаем размер (проверяем точный, аппроксимированный или суммарный для плейлистов)
+            estimated_size = int(raw_info.get("filesize") or raw_info.get("filesize_approx") or 0)
+
+            if estimated_size > settings.app.max_size_media:
+                size_gb = estimated_size / (1024**3)
+                raise ValueError(f"Файл слишком большой: {size_gb:.2f}GB (Лимит: 5.00GB)")
+
+            return True
+
+        except ValueError as val_err:
+            # Обрабатываем превышение размера: пишем ошибку в Redis и БД, выходим
+            logger.warning(f"Task {self.task_id} rejected: {val_err}")
+            error_data = {"status": "error", "msg": str(val_err)}
+
+            self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+
+            async with self.session_pool() as session:
+                await DownloadHistoryRepository(session).update(
+                    self.task_id,
+                    UpdateLoadHistoryItems(status="error"),
+                )
+            return False
+
+        except Exception as e:
+            # Если упали метаданные, не блокируем скачивание, даем шанс основному циклу
+            logger.warning(
+                f"Pre-download size check failed for task {self.task_id}: {e}. Proceeding."
+            )
+            return True

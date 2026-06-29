@@ -34,6 +34,7 @@ class AppConfig(BaseSettings):
     timelife: TimeLifeConfig = TimeLifeConfig()
     windows_host_ip: Annotated[str | None, Field(alias="WINDOWS_HOST_IP")] = None
     base_url_yt: str = "https://www.youtube.com/watch?v={video_id}"
+    max_size_media: int = 5 * 1024 * 1024 * 1024  # 5GB
 
     model_config = SettingsConfigDict(
         env_file=ENVS_DIR / ".env.app-prod",

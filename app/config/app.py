@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,7 +63,7 @@ class AppConfig(BaseSettings):
         return None
 
     @property
-    def base_ydl_opts(self):
+    def base_ydl_opts(self) -> dict[str, Any]:
         """
         Get base yt-dlp options.
         """
@@ -81,7 +81,7 @@ class AppConfig(BaseSettings):
         }
 
     @property
-    def advanced_ydl_opts(self):
+    def advanced_ydl_opts(self) -> dict[str, Any]:
         """
         Get base yt-dlp options.
         """

@@ -19,12 +19,16 @@ class DownloadHistoryRepository:
         await self.session.commit()
         await self.session.refresh(instance)
 
-    async def update(self, task_id, items_update: UpdateLoadHistoryItems) -> None:
+    async def update(
+        self,
+        task_id: str,
+        items_update: UpdateLoadHistoryItems,
+    ) -> None:
         stmt = update(DownloadTask).where(DownloadTask.id == task_id).values(**asdict(items_update))
         await self.session.execute(stmt)
         await self.session.commit()
 
-    async def get_by_id(self, task_id) -> DownloadTask | None:
+    async def get_by_id(self, task_id: str) -> DownloadTask | None:
         return await self.session.get(DownloadTask, task_id)
 
     async def get_latest_by_user(

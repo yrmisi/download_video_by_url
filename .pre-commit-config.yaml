@@ -33,11 +33,8 @@ repos:
           --strict,
           --ignore-missing-imports,
           --allow-subclassing-any,
-          --explicit-package-bases
+          --explicit-package-bases,
         ]
-        # Указываем pre-commit, что папка проекта является корнем для импортов
-        environment:
-          MYPYPATH: .
         additional_dependencies: [
             "pydantic",
             "sqlalchemy",

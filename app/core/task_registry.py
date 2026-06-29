@@ -4,9 +4,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.services import DownloadTaskService
 
-active_tasks: dict[str, asyncio.Task] = {}
+active_tasks: dict[str, asyncio.Task[None]] = {}
 # Разрешаем серверу качать максимум 3 видео одновременно во всем приложении
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(3)
+
 
 async def running_task(task_id: str, download_task: DownloadTaskService) -> None:
     """ """

@@ -22,7 +22,7 @@ async def get_recent_history(
     """
     Endpoint to get recent download history for a user.
     """
-    
+
     latest_history: LatestLoadHistoryService = LatestLoadHistoryService(session, r)
     history = await latest_history.get_history(user_id)
     return history

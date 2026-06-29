@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from redis import Redis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
@@ -31,7 +32,7 @@ class DownloadTaskService:
     def __init__(
         self,
         task_id: str,
-        session_pool,
+        session_pool: async_sessionmaker[AsyncSession],
         load_media: LoadMediaRequest,
         redis: Redis,
         attempts: int = 3,
@@ -203,7 +204,7 @@ class DownloadTaskService:
         try:
             for f in os.listdir(downloads_dir):
                 # Исключаем временные файлы .part и .ytdl
-                if f.startswith(name_without_ext) and not f.endswith(('.part', '.ytdl')):
+                if f.startswith(name_without_ext) and not f.endswith((".part", ".ytdl")):
                     return f
         except FileNotFoundError:
             logger.error(f"Directory not found: {downloads_dir}")

@@ -13,5 +13,6 @@ async def get_download_status(
 
     data = await r.get(f"task:{task_id}")
     if data:
-        return json.loads(data)
+        result_dict: dict[str, str] = json.loads(data)
+        return result_dict
     return {"status": "pending"}

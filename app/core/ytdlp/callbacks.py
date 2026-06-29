@@ -22,10 +22,10 @@ def progress_hook(
 
     check_cancel_status(task_id, redis_client)
 
-    if d['status'] == 'downloading':
+    if d["status"] == "downloading":
         data = {
-            "percent": d.get('_percent_str', '0%'),
-            "speed": d.get('_speed_str', 'N/A'),
+            "percent": d.get("_percent_str", "0%"),
+            "speed": d.get("_speed_str", "N/A"),
             "status": "downloading",
         }
 
@@ -55,14 +55,14 @@ def postprocessor_hook(
     check_cancel_status(task_id, redis_client)
 
     status_msg = "Processing..."
-    if d['status'] == 'started':
+    if d["status"] == "started":
         # Можно уточнить, какой именно процесс идет
-        pp_name = d.get('postprocessor', '')
-        if pp_name == 'Merger':
+        pp_name = d.get("postprocessor", "")
+        if pp_name == "Merger":
             status_msg = "Merging video & audio..."
-        elif pp_name == 'EmbedThumbnail':
+        elif pp_name == "EmbedThumbnail":
             status_msg = "Adding thumbnail..."
-        elif pp_name == 'FFmpegMetadata':
+        elif pp_name == "FFmpegMetadata":
             status_msg = "Writing metadata..."
 
         data = {

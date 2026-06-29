@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from typing import Sequence
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
 from app.database import session_pool
@@ -21,7 +23,7 @@ class FileCleanupService:
 
     def __init__(
         self,
-        session_pool=session_pool,
+        session_pool: async_sessionmaker[AsyncSession] = session_pool,
         downloads_dir: Path = DOWNLOADS_DIR,
     ):
         """
@@ -41,9 +43,9 @@ class FileCleanupService:
 
                 async with self.session_pool() as session:
                     self.repo = DownloadHistoryRepository(session)
-                    expired_tasks: Sequence[DownloadTask] = (
-                        await self.repo.get_record_create_hour_ago()
-                    )
+                    expired_tasks: Sequence[
+                        DownloadTask
+                    ] = await self.repo.get_record_create_hour_ago()
 
                     for task in expired_tasks:
                         # Если сигнал остановки пришел в процессе перебора,

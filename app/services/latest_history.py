@@ -35,7 +35,7 @@ class LatestLoadHistoryService:
         # 1. Пробуем взять из кэша
         cached_data = await self.r.get(cache_key)
         if cached_data:
-            return json.loads(cached_data)
+            return [DownloadTask(**task) for task in json.loads(cached_data)]
 
         # 2. Если в кэше пусто, идем в базу
         history: Sequence[DownloadTask] = await self.repo.get_latest_by_user(

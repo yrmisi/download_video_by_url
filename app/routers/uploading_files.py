@@ -21,5 +21,5 @@ async def download_file(
     return FileResponse(
         path=data.file_disk_path,
         filename=data.friendly_name,
-        media_type='application/octet-stream',
+        media_type="application/octet-stream",
     )

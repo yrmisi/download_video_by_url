@@ -11,7 +11,7 @@ async def cancel_download(
     task_id: str,
     session: AsyncSessionDep,
     r: AsyncRedisDep,
-):
+) -> dict[str, str]:
     """
     Endpoint to cancel an ongoing download.
     """

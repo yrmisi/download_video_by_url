@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .paths import ENVS_DIR
@@ -25,6 +25,16 @@ class TimeLifeConfig(BaseModel):
     one_day: int = 86400
 
 
+def to_upper(val: Any) -> Any:
+    """
+    Converts the string to uppercase if possible.
+    """
+
+    if isinstance(val, str):
+        return val.upper()
+    return val
+
+
 class AppConfig(BaseSettings):
     """
     Main application configuration.
@@ -35,6 +45,7 @@ class AppConfig(BaseSettings):
     windows_host_ip: Annotated[str | None, Field(alias="WINDOWS_HOST_IP")] = None
     base_url_yt: str = "https://www.youtube.com/watch?v={video_id}"
     max_size_media: int = 5 * 1024 * 1024 * 1024  # 5GB
+    log_level: Annotated[str, BeforeValidator(to_upper), Field(alias="LOG_LEVEL")] = "DEBUG"
 
     model_config = SettingsConfigDict(
         env_file=ENVS_DIR / ".env.app-prod",

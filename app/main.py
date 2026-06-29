@@ -11,6 +11,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.config import setup_logging
 from app.core.limiter import limiter
 from app.database import async_engine
 from app.routers import (
@@ -23,6 +24,7 @@ from app.routers import (
 )
 from app.services import FileCleanupService
 
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +92,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="MediaGrab", lifespan=lifespan)
 
+# Настройка CORS
+# CORS Middleware (ДОЛЖЕН БЫТЬ ПЕРВЫМ для обработки OPTIONS preflight)
+# На dev можно использовать "http://localhost:8000,http://localhost:5173", порт 5173 - дефолт для Vite на фронтенде
+# На prod — конкретный домен фронтенда
+raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+if raw_origins:
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+else:
+    origins = [
+        "http://localhost",
+        "http://localhost:8000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=[
+        "GET",
+        "POST",
+        "DELETE",
+        "OPTIONS",  # OPTIONS нужен для preflight-запросов браузера
+    ],
+    allow_headers=["*"],
+)
+
 # Интегрируем SlowAPI
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
@@ -114,29 +144,6 @@ app.include_router(router=load_media_router, prefix="/api")
 app.include_router(router=history_router, prefix="/api")
 app.include_router(router=cancel_router, prefix="/api")
 app.include_router(router=load_files_router, prefix="/api")
-
-# Настройка CORS
-# На dev можно использовать "http://localhost:8000,http://localhost:5173"
-# На prod — конкретный домен фронтенда
-raw_origins = os.getenv("ALLOWED_ORIGINS", "")
-if raw_origins:
-    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
-else:
-    # Если переменная пустая, по умолчанию в целях безопасности разрешаем только localhost
-    origins = ["http://localhost", "http://localhost:8000"]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=[
-        "GET",
-        "POST",
-        "DELETE",
-        "OPTIONS",
-    ],  # OPTIONS нужен для preflight-запросов браузера
-    allow_headers=["*"],
-)
 
 # Инициализируем сбор метрик (подсчет HTTP запросов, ошибок, latency)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")

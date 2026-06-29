@@ -4,14 +4,15 @@ import logging
 import os
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from redis import Redis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
 from app.core.ytdlp.callbacks import postprocessor_hook, progress_hook
-from app.core.ytdlp.executor import execute_ydl
+from app.core.ytdlp.executor import execute_ydl, get_raw_extract_info
 from app.repositories import DownloadHistoryRepository
 from app.schemas import (
     DownloadHistoryItems,
@@ -31,9 +32,11 @@ class DownloadTaskService:
     def __init__(
         self,
         task_id: str,
-        session_pool,
+        session_pool: async_sessionmaker[AsyncSession],
         load_media: LoadMediaRequest,
         redis: Redis,
+        attempts: int = 3,
+        delay: int = 2,
     ) -> None:
         """
         Initialize the download task service.
@@ -42,6 +45,8 @@ class DownloadTaskService:
         self.session_pool = session_pool
         self.load_media = load_media
         self.r = redis
+        self.attempts = attempts
+        self.delay = delay
 
     async def run_download(self) -> None:
         """
@@ -70,20 +75,43 @@ class DownloadTaskService:
             self.repo = DownloadHistoryRepository(session)
             await self.repo.create(item)
 
-        try:
-            # 2. ЗАПУСКАЕМ ТОЛЬКО ОДИН РАЗ
-            # info — словарь с данными, path — ожидаемый путь файла
-            loop = asyncio.get_running_loop()
-            info, path = await loop.run_in_executor(
-                None,
-                execute_ydl,
-                ydl_opts,
-                str(self.load_media.url),
-            )
-        except asyncio.CancelledError:
-            logger.info(f"Task {self.task_id} was cancelled!")
-            self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
-            raise
+        # Проверка лимита размера файла
+        is_valid: bool = await self._assert_file_size_limit()
+        if not is_valid:
+            return
+
+        for attempt in range(1, self.attempts + 1):
+            try:
+                # info — словарь с данными, path — ожидаемый путь файла
+                loop = asyncio.get_running_loop()
+                info, path = await loop.run_in_executor(
+                    None,
+                    execute_ydl,
+                    ydl_opts,
+                    str(self.load_media.url),
+                )
+                break  # Если скачалось успешно — выходим из цикла попыток
+            except asyncio.CancelledError:
+                logger.info(f"Task {self.task_id} was cancelled!")
+                self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
+                raise
+            except Exception as e:
+                if attempt == self.attempts:
+                    # Это была последняя попытка, фиксируем критическую ошибку
+                    logger.error(f"Task {self.task_id} failed after {self.attempts} attempts: {e}")
+                    error_data = {"status": "error", "msg": str(e)}
+                    self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+                    async with self.session_pool() as session:
+                        await DownloadHistoryRepository(session).update(
+                            self.task_id, UpdateLoadHistoryItems(status="error")
+                        )
+                    return
+
+                logger.warning(
+                    f"Attempt {attempt} for task {self.task_id} failed: {e}. Retrying in {self.delay}s..."
+                )
+                await asyncio.sleep(self.delay)
+                self.delay *= 2  # Экспоненциальное увеличение паузы (2с -> 4с)
 
         # 3. ПОИСК ФАЙЛА (так как расширение могло измениться после FFmpeg)
         actual_filename: str = self._check_file_for_location(path, DOWNLOADS_DIR)
@@ -117,8 +145,11 @@ class DownloadTaskService:
                 self.task_id,
                 item_update,
             )
-        # Удаляем кэш истории пользователя, чтобы при следующем заходе он обновился
-        self.r.delete(f"user_history:{self.load_media.user_id}")
+        # Очищаем все закэшированные страницы истории пользователя
+        user_history_pattern = f"user_history:{self.load_media.user_id}:*"
+        cached_keys = cast(list[Any], self.r.keys(user_history_pattern))
+        if cached_keys:
+            self.r.delete(*cached_keys)
 
         logger.info(
             f"Task {self.task_id} finished, cache invalidated for user {self.load_media.user_id}"
@@ -181,7 +212,7 @@ class DownloadTaskService:
         try:
             for f in os.listdir(downloads_dir):
                 # Исключаем временные файлы .part и .ytdl
-                if f.startswith(name_without_ext) and not f.endswith(('.part', '.ytdl')):
+                if f.startswith(name_without_ext) and not f.endswith((".part", ".ytdl")):
                     return f
         except FileNotFoundError:
             logger.error(f"Directory not found: {downloads_dir}")
@@ -208,3 +239,51 @@ class DownloadTaskService:
         if os.path.exists(full_path):
             physical_size = os.path.getsize(full_path)
         return physical_size or info.get("filesize") or info.get("filesize_approx") or 0
+
+    async def _assert_file_size_limit(self) -> bool:
+        """
+        Checks the file size before downloading.
+        Returns True if the file is within limits, False otherwise.
+        """
+        try:
+            logger.info(f"Checking file size for task {self.task_id} before download...")
+
+            loop = asyncio.get_running_loop()
+            # Получаем плоскую инфу без скачивания контента
+            raw_info: Mapping[str, Any] = await loop.run_in_executor(
+                None,
+                get_raw_extract_info,
+                str(self.load_media.url),
+                settings.app.base_ydl_opts,
+                False,
+            )
+
+            # Извлекаем размер (проверяем точный, аппроксимированный или суммарный для плейлистов)
+            estimated_size = int(raw_info.get("filesize") or raw_info.get("filesize_approx") or 0)
+
+            if estimated_size > settings.app.max_size_media:
+                size_gb = estimated_size / (1024**3)
+                raise ValueError(f"Файл слишком большой: {size_gb:.2f}GB (Лимит: 5.00GB)")
+
+            return True
+
+        except ValueError as val_err:
+            # Обрабатываем превышение размера: пишем ошибку в Redis и БД, выходим
+            logger.warning(f"Task {self.task_id} rejected: {val_err}")
+            error_data = {"status": "error", "msg": str(val_err)}
+
+            self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+
+            async with self.session_pool() as session:
+                await DownloadHistoryRepository(session).update(
+                    self.task_id,
+                    UpdateLoadHistoryItems(status="error"),
+                )
+            return False
+
+        except Exception as e:
+            # Если упали метаданные, не блокируем скачивание, даем шанс основному циклу
+            logger.warning(
+                f"Pre-download size check failed for task {self.task_id}: {e}. Proceeding."
+            )
+            return True

@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from typing import Sequence
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
 from app.database import session_pool
@@ -16,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 class FileCleanupService:
     """
-    Service for cleaning up expired and junk files.
+    Service for cleaning up expired and junk files with Graceful Shutdown support.
     """
 
     def __init__(
         self,
-        session_pool=session_pool,
+        session_pool: async_sessionmaker[AsyncSession] = session_pool,
         downloads_dir: Path = DOWNLOADS_DIR,
     ):
         """
@@ -30,67 +32,88 @@ class FileCleanupService:
         self.session_pool = session_pool
         self.downloads_dir = downloads_dir
 
-    async def clean_expired_downloads(self):
+    async def clean_expired_downloads(self, shutdown_event: asyncio.Event) -> None:
         """
-        Every 15 minutes, it checks the database for files that have expired within 1 hour of completion and deletes them from the disk, changing their status in the database.
+        Every 15 minutes, checks the database for files that expired within 1 hour
+        of completion, deletes them from disk, and changes their status in the DB.
         """
-        while True:
+        while not shutdown_event.is_set():
             try:
                 logger.debug("Checking DB for downloads expired more than 1 hour ago...")
 
                 async with self.session_pool() as session:
                     self.repo = DownloadHistoryRepository(session)
-                    expired_tasks: Sequence[DownloadTask] = (
-                        await self.repo.get_record_create_hour_ago()
-                    )
+                    expired_tasks: Sequence[
+                        DownloadTask
+                    ] = await self.repo.get_record_create_hour_ago()
 
                     for task in expired_tasks:
-                        # 2. Пытаемся удалить файлы по ID задачи
-                        # Метод find_and_delete_task_files удалит и видео, и jpg если остались
+                        # Если сигнал остановки пришел в процессе перебора,
+                        # прерываемся, чтобы успеть закрыть приложение safely
+                        if shutdown_event.is_set():
+                            logger.warning("Cleanup aborted midway due to application shutdown.")
+                            break
+
+                        # Пытаемся удалить файлы по ID задачи
                         files_deleted = self._delete_files_by_task_id(str(task.id))
 
-                        # 3. Меняем статус в БД на 'deleted', чтобы больше не обрабатывать
-                        # и чтобы в истории пользователя было видно, что файл удален по таймауту
+                        # Меняем статус в БД на 'deleted'
                         task.status = settings.app.state.delete
                         logger.info(
                             f"Task {task.id} expired. Status updated to 'deleted'. Files removed: {files_deleted}"
                         )
 
-                    if expired_tasks:
+                    if expired_tasks and not shutdown_event.is_set():
                         await session.commit()
 
             except Exception as e:
                 logger.error(f"Error during expired DB-downloads cleanup: {e}")
 
-            # Спим 15 минут
-            await asyncio.sleep(900)
+            # Спим 15 минут или до тех пор, пока не сработает shutdown_event
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=900.0)
+                # Если пришли сюда без исключения — значит, взведен event.set(), выходим из цикла
+                break
+            except asyncio.TimeoutError:
+                # Тайм-аут вышел, ивент не сработал — продолжаем крутить цикл
+                continue
 
-    async def clean_daily_trash(self) -> None:
+        logger.info("Expired files cleanup task exited cleanly.")
+
+    async def clean_daily_trash(self, shutdown_event: asyncio.Event) -> None:
         """
-        Once a day, it cleans physical junk on the disk, based on the file age.
+        Once a day, cleans physical junk (.part, .ytdl, orphaned files) on the disk.
         """
-        while True:
-            # Сразу засыпаем на сутки (интервал раз в день)
-            await asyncio.sleep(settings.app.timelife.one_day)
+        while not shutdown_event.is_set():
+            # Сразу засыпаем на сутки (интервал раз в день) или до сигнала остановки
+            try:
+                await asyncio.wait_for(
+                    shutdown_event.wait(), timeout=float(settings.app.timelife.one_day)
+                )
+                break  # Ивент сработал — завершаем таску
+            except asyncio.TimeoutError:
+                pass  # Сутки прошли — погнали чистить диск
 
             try:
                 logger.info("Running daily deep file-system trash cleanup...")
                 now = time.time()
 
                 if not self.downloads_dir.exists():
-                    return None
+                    continue
 
                 for f in os.listdir(self.downloads_dir):
+                    if shutdown_event.is_set():
+                        break
+
                     file_path = self.downloads_dir / f
 
                     if os.path.isfile(file_path):
                         file_age = now - os.path.getmtime(file_path)
 
-                        # Условия для удаления именно файлового МУСОРА:
-                        # 1. Зависшие .part / .ytdl файлы старше 3 часов (загрузка упала/отменилась аварийно)
+                        # 1. Зависшие .part / .ytdl файлы старше 3 часов
                         is_stuck_temp = f.endswith((".part", ".ytdl")) and file_age > (3 * 3600)
 
-                        # 2. Любые сиротливые файлы (например .jpg обложки), которые лежат дольше суток
+                        # 2. Любые сиротливые файлы (.jpg), которые лежат дольше суток
                         is_old_trash = file_age > settings.app.timelife.one_day
 
                         if is_stuck_temp or is_old_trash:
@@ -100,6 +123,8 @@ class FileCleanupService:
                             )
             except Exception as e:
                 logger.error(f"Error during daily file trash cleanup: {e}")
+
+        logger.info("Daily trash cleanup task exited cleanly.")
 
     def _delete_files_by_task_id(self, task_id: str) -> bool:
         """

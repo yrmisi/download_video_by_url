@@ -10,6 +10,10 @@ from app.schemas import DownloadHistoryItems, UpdateLoadHistoryItems
 
 
 class DownloadHistoryRepository:
+    """
+    Repository for managing download history database operations.
+    """
+
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
@@ -19,32 +23,44 @@ class DownloadHistoryRepository:
         await self.session.commit()
         await self.session.refresh(instance)
 
-    async def update(self, task_id, items_update: UpdateLoadHistoryItems) -> None:
+    async def update(
+        self,
+        task_id: str,
+        items_update: UpdateLoadHistoryItems,
+    ) -> None:
         stmt = update(DownloadTask).where(DownloadTask.id == task_id).values(**asdict(items_update))
         await self.session.execute(stmt)
         await self.session.commit()
 
-    async def get_by_id(self, task_id) -> DownloadTask | None:
+    async def get_by_id(self, task_id: str) -> DownloadTask | None:
         return await self.session.get(DownloadTask, task_id)
 
     async def get_latest_by_user(
         self,
         user_id: str,
         limit: int = 10,
+        offset: int = 0,
     ) -> Sequence[DownloadTask]:
         result = await self.session.execute(
             select(DownloadTask)
             .where(
                 DownloadTask.user_id == user_id,
-                or_(DownloadTask.status == "finished", DownloadTask.status == "deleted"),
+                or_(
+                    DownloadTask.status == "finished",
+                    DownloadTask.status == "deleted",
+                ),
             )
             .order_by(DownloadTask.created_at.desc())
             .limit(limit)
+            .offset(offset)
         )
         return result.scalars().all()
 
     async def get_record_create_hour_ago(self, hours: int = 1) -> Sequence[DownloadTask]:
-        """ """
+        """
+        Retrieve finished downloads completed more than specified hours ago.
+        """
+
         time_threshold = datetime.now(timezone.utc) - timedelta(hours=hours)
         stmt = select(DownloadTask).where(
             DownloadTask.status == "finished",

@@ -1,8 +1,9 @@
 import logging
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
+from app.core.limiter import limiter
 from app.core.task_registry import running_task
 from app.database import session_pool
 from app.dependencies import AsyncRedisDep, RedisDep
@@ -29,7 +30,9 @@ async def get_status(
 
 
 @router.post("/download")
+@limiter.limit("5/minute")
 async def load_media(
+    request: Request,
     load_media: LoadMediaRequest,
     r: RedisDep,
 ) -> dict[str, str]:

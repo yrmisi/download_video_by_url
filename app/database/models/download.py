@@ -1,11 +1,13 @@
-from sqlalchemy import BigInteger, Integer, String
+from sqlalchemy import BigInteger, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
 
 
 class DownloadTask(Base):
-    """ """
+    """
+    Database model representing a media download task.
+    """
 
     __tablename__ = "download_history"
 
@@ -21,8 +23,20 @@ class DownloadTask(Base):
     filesize: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending")
 
+    __table_args__ = (
+        # Идеальный индекс для get_record_create_hour_ago()
+        Index(
+            "idx_download_history_status_created",  # Название индекса в БД
+            "status",  # Первое поле (фильтрация)
+            "created_at",  # Второе поле (сортировка)
+        ),
+    )
+
     def to_dict(self) -> dict[str, str | int | None]:
-        """ """
+        """
+        Convert model instance to dictionary representation.
+        """
+
         return {
             "id": str(self.id),
             "url": self.url,

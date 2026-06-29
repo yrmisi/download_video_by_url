@@ -32,7 +32,8 @@ repos:
           --config-file=pyproject.toml,
           --strict,
           --ignore-missing-imports,
-          --allow-subclassing-any
+          --allow-subclassing-any,
+          --explicit-package-bases,
         ]
         additional_dependencies: [
             "pydantic",

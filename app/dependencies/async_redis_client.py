@@ -23,4 +23,5 @@ def get_async_redis() -> Redis:
         health_check_interval=settings.redis.health_check_interval,
     )
 
+
 AsyncRedisDep = Annotated[Redis, Depends(get_async_redis)]

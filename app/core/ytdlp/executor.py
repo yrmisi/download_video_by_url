@@ -15,7 +15,8 @@ def get_raw_extract_info(
     Basic wrapper over yt-dlp.
     """
     with yt_dlp.YoutubeDL(opts) as ydl:
-        return ydl.extract_info(url, download=download_allowed)
+        info: Mapping[str, Any] = ydl.extract_info(url, download=download_allowed)
+        return info
 
 
 def execute_ydl(

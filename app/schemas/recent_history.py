@@ -2,7 +2,6 @@ from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 
 
-
 class RecentHistoryResponse(BaseModel):
     """
     Response schema for download history.

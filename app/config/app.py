@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .paths import ENVS_DIR
@@ -25,6 +25,16 @@ class TimeLifeConfig(BaseModel):
     one_day: int = 86400
 
 
+def to_upper(val: Any) -> Any:
+    """
+    Converts the string to uppercase if possible.
+    """
+
+    if isinstance(val, str):
+        return val.upper()
+    return val
+
+
 class AppConfig(BaseSettings):
     """
     Main application configuration.
@@ -33,6 +43,9 @@ class AppConfig(BaseSettings):
     state: StateConfig = StateConfig()
     timelife: TimeLifeConfig = TimeLifeConfig()
     windows_host_ip: Annotated[str | None, Field(alias="WINDOWS_HOST_IP")] = None
+    base_url_yt: str = "https://www.youtube.com/watch?v={video_id}"
+    max_size_media: int = 5 * 1024 * 1024 * 1024  # 5GB
+    log_level: Annotated[str, BeforeValidator(to_upper), Field(alias="LOG_LEVEL")] = "DEBUG"
 
     model_config = SettingsConfigDict(
         env_file=ENVS_DIR / ".env.app-prod",
@@ -55,23 +68,32 @@ class AppConfig(BaseSettings):
 
         # for developer in docker
         # Берет чистый IP '172.17.16.1' из переменной окружения
+        # если prod, то прокидывается None
         host_ip: str | None = self.windows_host_ip
         if host_ip:
             return f"socks5h://{host_ip}:1080"
         return None
 
     @property
-    def base_ydl_opts(self):
+    def base_ydl_opts(self) -> dict[str, Any]:
         """
         Get base yt-dlp options.
         """
         return {
             "proxy": self.proxy_url,
             "quiet": True,
+            "nocheckcertificate": True,  # Игнорируем капризы SSL при handshake
+            "socket_timeout": 15,  # Даем время VPN «проснуться»
+            "retries": 5,  # Количество повторов при сбоях
+            "legacy_server_connect": True,  # Фикс капризов старых/модифицированных TLS
+            "youtube_include_hls_manifest": False,  # Запрещаем запрашивать m3u8 манифесты для инфы
+            "extract_flat": (
+                "in_playlist"
+            ),  # извлекаем информацию в "плоском" режиме (быстрее и без лишних проверок)
         }
 
     @property
-    def advanced_ydl_opts(self):
+    def advanced_ydl_opts(self) -> dict[str, Any]:
         """
         Get base yt-dlp options.
         """
@@ -81,6 +103,12 @@ class AppConfig(BaseSettings):
             "noplaylist": True,
             "writethumbnail": True,
             "no_color": True,  # Отключает ANSI-коды (цвета) в выводе
+            # Сетевые настройки для стабильности через VPN:
+            "nocheckcertificate": True,
+            "socket_timeout": 15,
+            "retries": 10,
+            "fragment_retries": 10,  # Заставляем m3u8 не падать при обрывах
+            "file_access_retries": 3,
             "postprocessors": [
                 {"key": "EmbedThumbnail"},
                 {"key": "FFmpegMetadata"},

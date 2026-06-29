@@ -1,3 +1,10 @@
+# Глобальные настройки логирования для всех контейнеров
+x-logging: &default-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m" # Один файл лога не больше 10 МБ
+      max-file: "3" # Хранить не более 3 файлов для каждого контейнера
 services:
   db:
     image: postgres:18.3-alpine3.23
@@ -16,6 +23,7 @@ services:
       retries: 3
     networks:
       - my_network
+    <<: *default-logging
   migrations:
     build:
       context: .
@@ -28,17 +36,26 @@ services:
         condition: service_healthy
     # Переопределяем команду: выполняем миграцию и выходим
     command: >
-      sh -c "alembic upgrade head"
+      sh -c
+      "alembic upgrade head"
     networks:
       - my_network
+    <<: *default-logging
   redis:
     image: redis:8.6.3-alpine3.23
     container_name: redis
     restart: unless-stopped
+    # persistence configuration: защищает от потери данных и риска утечки памяти.
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
     env_file:
     - app/config/envs/.env.redis-prod
     ports:
-      - "6379:6379"
+      # доступен только локально внутри машины
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -48,16 +65,24 @@ services:
       retries: 3
     networks:
     - my_network
+    <<: *default-logging
   web:
     build:
       context: .
       dockerfile: docker_build/backend/Dockerfile
     container_name: web
     restart: unless-stopped
+    dns:
+      # пойдут за резолвом YouTube напрямую к серверам в туннеле,
+      # минуя цепочку посредников Docker-WSL-Windows
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - app/config/envs/.env.app-prod
       - app/config/envs/.env.postgres-prod
       - app/config/envs/.env.redis-prod
+    environment:
+      - RUN_BACKGROUND_TASKS=False # жестко выключаем очистку
     ports:
       - "8000:8000"
     volumes:
@@ -75,6 +100,41 @@ services:
       start_period: 10s
     networks:
       - my_network
+    <<: *default-logging
+  # КРОН / ВОРКЕР ОЧИСТКИ (Работает в 1 поток для очистки файлов)
+  cron_worker:
+    build:
+      context: .
+      dockerfile: docker_build/backend/Dockerfile
+    container_name: cron_worker
+    restart: unless-stopped
+    dns:
+      # добавлен dns для cron_worker, так как он тоже может обращаться к внешним сервисам, как и web
+      - 1.1.1.1
+      - 8.8.8.8
+    env_file:
+      - app/config/envs/.env.app-prod
+      - app/config/envs/.env.postgres-prod
+      - app/config/envs/.env.redis-prod
+    environment:
+      # Переопределяем воркеры в 1, чтобы не плодить процессы очистки,
+      # и разрешаем фоновые таски
+      - WORKERS=1
+      - THREADS=1
+      - RUN_BACKGROUND_TASKS=True
+    volumes:
+      - downloads_data:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    # Если логика очистки встроена в само приложение и запускается при старте,
+    # команду (command) можно даже не переопределять, она возьмет CMD из Dockerfile,
+    # но отработает в один поток и с включенным флагом задач.
+    networks:
+      - my_network
+    <<: *default-logging
   nginx:
     build:
       context: .
@@ -96,11 +156,44 @@ services:
         condition: service_healthy
     networks:
       - my_network
+    <<: *default-logging
+  # === БЛОК МОНИТОРИНГА ===
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      # Монтируем созданный конфиг
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - my_network
+    <<: *default-logging
+  grafana:
+    image: grafana/grafana:13.0.3-slim
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000" # Открываем веб-интерфейс Grafana наружу
+    volumes:
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - my_network
+    <<: *default-logging
 
 volumes:
   pg_data:
   redis_data:
   downloads_data:
+  prometheus_data: # Изолированный volume для хранения истории метрик
+  grafana_data:    # Изолированный volume для хранения дашбордов и настроек
 
 networks:
   my_network:

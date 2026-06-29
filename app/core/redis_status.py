@@ -4,7 +4,7 @@ from typing import Any
 from redis import Redis
 
 
-def check_cancel_status(task_id: str, redis_client: Redis):
+def check_cancel_status(task_id: str, redis_client: Redis) -> None:
     """
     Check if a cancellation mark has appeared in Redis.
     """

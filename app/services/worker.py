@@ -4,7 +4,7 @@ import logging
 import os
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from redis import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -145,8 +145,11 @@ class DownloadTaskService:
                 self.task_id,
                 item_update,
             )
-        # Удаляем кэш истории пользователя, чтобы при следующем заходе он обновился
-        self.r.delete(f"user_history:{self.load_media.user_id}")
+        # Очищаем все закэшированные страницы истории пользователя
+        user_history_pattern = f"user_history:{self.load_media.user_id}:*"
+        cached_keys = cast(list[Any], self.r.keys(user_history_pattern))
+        if cached_keys:
+            self.r.delete(*cached_keys)
 
         logger.info(
             f"Task {self.task_id} finished, cache invalidated for user {self.load_media.user_id}"

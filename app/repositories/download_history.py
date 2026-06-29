@@ -35,15 +35,20 @@ class DownloadHistoryRepository:
         self,
         user_id: str,
         limit: int = 10,
+        offset: int = 0,
     ) -> Sequence[DownloadTask]:
         result = await self.session.execute(
             select(DownloadTask)
             .where(
                 DownloadTask.user_id == user_id,
-                or_(DownloadTask.status == "finished", DownloadTask.status == "deleted"),
+                or_(
+                    DownloadTask.status == "finished",
+                    DownloadTask.status == "deleted",
+                ),
             )
             .order_by(DownloadTask.created_at.desc())
             .limit(limit)
+            .offset(offset)
         )
         return result.scalars().all()
 

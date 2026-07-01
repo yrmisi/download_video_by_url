@@ -378,7 +378,7 @@ function pollStatus() {
         progressBar.setAttribute("aria-valuenow", parseInt(percent) || 0);
 
         statusText.innerText = `Downloading: ${percent}`;
-        speedText.innerText = data.speed || "0 MB/s";
+        speedText.innerText = `Speed: ${data.speed || "0 MB/s"}`;
       } else if (data.status === "processing") {
         progressBar.style.width = "100%";
         progressBar.setAttribute("aria-valuenow", 100);
@@ -405,11 +405,12 @@ function pollStatus() {
           downloadLink.download = data.file_url.split("/").pop();
           downloadContainer.classList.remove("hidden");
 
-          downloadLink.onclick = () => {
+          downloadLink.onclick = (event) => {
+            // 1. Позволяем стандартному скачиванию файла в браузере начаться
+            // 2. Делаем небольшую задержку в 300мс, чтобы браузер успел обработать инициацию скачивания, после чего мгновенно перезагружаем страницу на Home/Input шаг
             setTimeout(() => {
-              downloadContainer.classList.add("hidden");
-              statusText.innerText = "File sent to browser";
-            }, 500);
+              location.reload();
+            }, 300);
           };
         }
       }

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Настройки
-BACKUP_DIR="./backups"
+BACKUP_DIR="/home/yrmisi/PythonProjects/download_video_by_url/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 PROJECT_DIR="/home/yrmisi/PythonProjects/download_video_by_url"
 # Переходим в папку проекта

@@ -82,13 +82,17 @@ class DownloadTaskService:
 
         for attempt in range(1, self.attempts + 1):
             try:
-                # info — словарь с данными, path — ожидаемый путь файла
                 loop = asyncio.get_running_loop()
-                info, path = await loop.run_in_executor(
-                    None,
-                    execute_ydl,
-                    ydl_opts,
-                    str(self.load_media.url),
+                # Получаем info — словарь с данными, path — ожидаемый путь файла
+                # Жесткий тайм-аут на скачивание (например, 30 минут)
+                info, path = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        execute_ydl,
+                        ydl_opts,
+                        str(self.load_media.url),
+                    ),
+                    timeout=1800,
                 )
                 break  # Если скачалось успешно — выходим из цикла попыток
             except asyncio.CancelledError:
@@ -250,12 +254,16 @@ class DownloadTaskService:
 
             loop = asyncio.get_running_loop()
             # Получаем плоскую инфу без скачивания контента
-            raw_info: Mapping[str, Any] = await loop.run_in_executor(
-                None,
-                get_raw_extract_info,
-                str(self.load_media.url),
-                settings.app.base_ydl_opts,
-                False,
+            # Ставим тайм-аут 30 секунд на получение метаданных
+            raw_info: Mapping[str, Any] = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    get_raw_extract_info,
+                    str(self.load_media.url),
+                    settings.app.base_ydl_opts,
+                    False,
+                ),
+                timeout=30.0,
             )
 
             # Извлекаем размер (проверяем точный, аппроксимированный или суммарный для плейлистов)

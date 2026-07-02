@@ -4,14 +4,19 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import setup_logging
+from app.core.cors import get_allowed_origins
+from app.core.handlers import (
+    rate_limit_handler,
+    validation_exception_handler,
+)
 from app.core.limiter import limiter
 from app.database import async_engine
 from app.routers import (
@@ -94,22 +99,9 @@ app = FastAPI(title="MediaGrab", lifespan=lifespan)
 
 # Настройка CORS
 # CORS Middleware (ДОЛЖЕН БЫТЬ ПЕРВЫМ для обработки OPTIONS preflight)
-# На dev можно использовать "http://localhost:8000,http://localhost:5173", порт 5173 - дефолт для Vite на фронтенде
-# На prod — конкретный домен фронтенда
-raw_origins = os.getenv("ALLOWED_ORIGINS", "")
-if raw_origins:
-    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
-else:
-    origins = [
-        "http://localhost",
-        "http://localhost:8000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=[
         "GET",
@@ -124,19 +116,9 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
-
-@app.exception_handler(RateLimitExceeded)
-async def rate_limit_handler(
-    request: Request,
-    exc: RateLimitExceeded,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=429,
-        content={
-            "detail": "Too many requests",
-        },
-    )
-
+# Регистрация обработчиков исключений
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 app.include_router(router=health_router)
 app.include_router(router=media_info_router, prefix="/api")

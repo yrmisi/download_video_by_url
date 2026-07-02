@@ -8,6 +8,7 @@ from typing import Any, Mapping, cast
 
 from redis import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from yt_dlp.utils import DownloadError
 
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
@@ -95,20 +96,50 @@ class DownloadTaskService:
                     timeout=1800,
                 )
                 break  # Если скачалось успешно — выходим из цикла попыток
+            except DownloadError as e:
+                # 1. Проверяем, была ли это запланированная отмена пользователем из хука
+                if "Download cancelled by user" in str(e):
+                    logger.info(
+                        f"Task {self.task_id} was successfully cancelled by user via yt-dlp exception."
+                    )
+                    self.r.set(
+                        f"task:{self.task_id}",
+                        json.dumps(
+                            {
+                                "status": "cancelled",
+                                "msg": "Stopped by user",
+                            }
+                        ),
+                    )
+                    # Важно возбудить асинхронную отмену, чтобы event loop правильно завершил корутину
+                    raise asyncio.CancelledError()
+
+                # 2. Если это обычная сетевая или форматная ошибка самого yt-dlp, обрабатываем логику попыток
+                if attempt == self.attempts:
+                    await self._handle_fatal_error(e)
+                    return
+
+                logger.warning(
+                    f"Attempt {attempt} for task {self.task_id} failed (yt-dlp error): {e}. Retrying..."
+                )
+                await asyncio.sleep(self.delay)
+                self.delay *= 2
             except asyncio.CancelledError:
                 logger.info(f"Task {self.task_id} was cancelled!")
-                self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
+                self.r.set(
+                    f"task:{self.task_id}",
+                    json.dumps(
+                        {
+                            "status": "cancelled",
+                            "msg": "Stopped by user",
+                        }
+                    ),
+                )
                 raise
             except Exception as e:
                 if attempt == self.attempts:
                     # Это была последняя попытка, фиксируем критическую ошибку
-                    logger.error(f"Task {self.task_id} failed after {self.attempts} attempts: {e}")
-                    error_data = {"status": "error", "msg": str(e)}
-                    self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
-                    async with self.session_pool() as session:
-                        await DownloadHistoryRepository(session).update(
-                            self.task_id, UpdateLoadHistoryItems(status="error")
-                        )
+                    await self._handle_fatal_error(e)
                     return
 
                 logger.warning(
@@ -271,16 +302,23 @@ class DownloadTaskService:
 
             if estimated_size > settings.app.max_size_media:
                 size_gb = estimated_size / (1024**3)
-                raise ValueError(f"Файл слишком большой: {size_gb:.2f}GB (Лимит: 5.00GB)")
+                raise ValueError(f"The file is too large: {size_gb:.2f}GB (Limit: 5.00GB)")
 
             return True
 
         except ValueError as val_err:
             # Обрабатываем превышение размера: пишем ошибку в Redis и БД, выходим
             logger.warning(f"Task {self.task_id} rejected: {val_err}")
-            error_data = {"status": "error", "msg": str(val_err)}
+            error_data = {
+                "status": "error",
+                "msg": str(val_err),
+            }
 
-            self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+            self.r.setex(
+                f"task:{self.task_id}",
+                3600,
+                json.dumps(error_data),
+            )
 
             async with self.session_pool() as session:
                 await DownloadHistoryRepository(session).update(
@@ -295,3 +333,27 @@ class DownloadTaskService:
                 f"Pre-download size check failed for task {self.task_id}: {e}. Proceeding."
             )
             return True
+
+    async def _handle_fatal_error(self, error: Exception | str) -> None:
+        """
+        Handles final task failure after all attempts are exhausted.
+        Logs the error, updates Redis status, and sets the DB status to error.
+        """
+        error_msg = str(error)
+        logger.error(f"Task {self.task_id} failed after {self.attempts} attempts: {error_msg}")
+
+        error_data = {
+            "status": "error",
+            "msg": error_msg,
+        }
+        self.r.setex(
+            f"task:{self.task_id}",
+            3600,
+            json.dumps(error_data),
+        )
+
+        async with self.session_pool() as session:
+            await DownloadHistoryRepository(session).update(
+                self.task_id,
+                UpdateLoadHistoryItems(status="error"),
+            )

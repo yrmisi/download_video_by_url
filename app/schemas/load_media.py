@@ -2,11 +2,14 @@
 Схемы валидации входящих запросов на загрузку медиаконтента.
 """
 
+import ipaddress
 import re
+import socket
 from enum import Enum
 from typing import Any
 
 from pydantic import AnyUrl, BaseModel, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.config import settings
 
@@ -77,3 +80,38 @@ class LoadMediaRequest(BaseModel):
                 return settings.app.base_url_yt.format(video_id=video_id)
 
         return url_str
+
+    @field_validator("url", mode="after")
+    @classmethod
+    def validate_ssrf(cls, url: AnyUrl) -> AnyUrl:
+        """
+        Protects against SSRF by blocking local, private, and loopback IP addresses/hosts.
+        """
+        host = url.host
+
+        if not host:
+            raise PydanticCustomError("url_error", "URL must contain a valid host")
+
+        # 1. Сразу блокируем явные локальные имена
+        host_lower = host.lower()
+        if host_lower in ["localhost", "localhost.localdomain"] or host_lower.endswith(".local"):
+            raise PydanticCustomError("ssrf_error", "Access to local networks is forbidden")
+
+        # Блокируем имена контейнеров в docker compose сети (db, redis, nginx и т.д.)
+        if host_lower in ["db", "redis", "nginx", "web"]:
+            raise PydanticCustomError("ssrf_error", "Access to internal services is forbidden")
+
+        # 2. Резолвим хост (IP или домен) в реальный IP-адрес
+        try:
+            ip_str = socket.gethostbyname(host)
+            ip = ipaddress.ip_address(ip_str)
+        except Exception:
+            # Если домен не резолвится, yt-dlp всё равно не сможет скачать,
+            # но для безопасности можно пропустить или выбросить ошибку
+            return url
+
+        # 3. Проверяем, входит ли IP в приватные или loopback диапазоны
+        if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved:
+            raise PydanticCustomError("ssrf_error", "Access to private IP ranges is forbidden")
+
+        return url

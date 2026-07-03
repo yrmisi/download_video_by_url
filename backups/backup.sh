@@ -12,9 +12,14 @@ BACKUP_DIR="$PROJECT_DIR/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 ENV_FILE="$PROJECT_DIR/app/config/envs/.env.postgres-prod"
 
-# Пароль для шифрования бэкапов (Сгенерируй сложный ключ и сохрани его в надежном месте!)
-# В продакшене лучше читать его из секретного файла, к которому есть доступ только у root
-ENCRYPTION_KEY="СуперСекретныйПарольДляШифрованияБэкапов"
+# ТОЧЕЧНО достаем ключ шифрования из .env файла, не экспортируя его глобально
+ENCRYPTION_KEY=$(grep -E "^ENCRYPTION_KEY=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"'"'") || true
+
+# Обрабатываем отсутствие ключа шифрования
+if [ -z "$ENCRYPTION_KEY" ]; then
+    echo "CRITICAL ERROR: ENCRYPTION_KEY is missing in $ENV_FILE" >&2
+    exit 1
+fi
 
 # Переходим в папку проекта
 cd "$PROJECT_DIR" || exit 1

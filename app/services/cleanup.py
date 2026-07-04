@@ -55,7 +55,13 @@ class FileCleanupService:
                             break
 
                         # Пытаемся удалить файлы по ID задачи
-                        files_deleted = self._delete_files_by_task_id(str(task.id))
+                        # Используем правильный асинхронный вызов через executor
+                        loop = asyncio.get_running_loop()
+                        files_deleted = await loop.run_in_executor(
+                            None,  # Использовать стандартный ThreadPoolExecutor приложения
+                            self._delete_files_by_task_id,
+                            str(task.id),
+                        )
 
                         # Меняем статус в БД на 'deleted'
                         task.status = settings.app.state.delete

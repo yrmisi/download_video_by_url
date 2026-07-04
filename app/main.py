@@ -19,6 +19,7 @@ from app.core.handlers import (
 )
 from app.core.limiter import limiter
 from app.database import async_engine
+from app.database.db_telemetry import close_database_telemetry, setup_database_telemetry
 from app.routers import (
     cancel_router,
     health_router,
@@ -62,6 +63,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cleanup tasks are DISABLED (Web server mode).")
 
+    # Инициализируем телеметрию для базы данных
+    setup_database_telemetry(async_engine)
+
     yield
 
     if run_cleanup and shutdown_event:
@@ -89,6 +93,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 app.state.cleanup_trash_task,
                 return_exceptions=True,
             )
+    # Чистим за собой телеметрию при остановке приложения
+    close_database_telemetry(async_engine)
 
     # В самую последнюю очередь закрываем коннекты к БД
     await async_engine.dispose()

@@ -59,12 +59,12 @@ class FileCleanupService:
 
                         # Меняем статус в БД на 'deleted'
                         task.status = settings.app.state.delete
+
+                        # Сохраняем изменения через защищенный метод репозитория
+                        await self.repo.save(task)
                         logger.info(
                             f"Task {task.id} expired. Status updated to 'deleted'. Files removed: {files_deleted}"
                         )
-
-                    if expired_tasks and not shutdown_event.is_set():
-                        await session.commit()
 
             except Exception as e:
                 logger.error(f"Error during expired DB-downloads cleanup: {e}")

@@ -206,6 +206,59 @@
                     "sort": "none"
                 }
             }
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 18,
+                "y": 0
+            },
+            "id": 5,
+            "title": "Cleanup: Files Removed / sec",
+            "type": "stat",
+            "datasource": "prometheus",
+            "targets": [
+                {
+                    "datasource": "prometheus",
+                    "editorMode": "code",
+                    "expr": "sum(rate(mediagrab_cleanup_files_removed_total[2m]))",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "valueAndName"
+            }
         }
     ],
     "refresh": "5s",

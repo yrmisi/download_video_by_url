@@ -79,8 +79,16 @@
         </div>
 
         <div class="flex justify-between items-center pt-4 border-t border-gray-800">
-          <button onclick="showStep('input')" class="text-gray-400 hover:text-white font-medium focus:underline focus:outline-none">
+          <!-- <button onclick="showStep('input')" class="text-gray-400 hover:text-white font-medium focus:underline focus:outline-none">
             Back
+          </button> -->
+          <button onclick="showStep('input')" class="inline-flex items-center gap-2 text-gray-400 hover:text-white font-medium focus:underline focus:outline-none">
+            <!-- Изогнутая стрелка назад (U-turn) -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 height-4">
+              <polyline points="9 14 4 9 9 4"></polyline>
+              <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+            </svg>
+            <span>Back to home</span>
           </button>
           <button onclick="startDownload()" class="bg-blue-600 hover:bg-blue-700 text-white px-10 py-2 rounded font-medium shadow-md transition focus:ring-2 focus:ring-blue-400 focus:outline-none">
             Start

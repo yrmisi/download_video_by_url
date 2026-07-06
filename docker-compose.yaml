@@ -5,6 +5,13 @@ x-logging: &default-logging
     options:
       max-size: "10m" # Один файл лога не больше 10 МБ
       max-file: "3" # Хранить не более 3 файлов для каждого контейнера
+# Базовые лимиты для легких контейнеров (БД, Redis, Nginx, Мониторинг)
+x-core-limits: &core-limits
+  deploy:
+    resources:
+      limits:
+        cpus: '0.50'     # Максимум половина ядра CPU
+        memory: 512M     # Не больше 512 МБ оперативной памяти
 services:
   db:
     image: postgres:18.3-alpine3.23
@@ -23,7 +30,7 @@ services:
       retries: 3
     networks:
       - my_network
-    <<: *default-logging
+    <<: [*default-logging, *core-limits] # Защищаем БД от утечек памяти
   migrations:
     build:
       context: .
@@ -65,7 +72,7 @@ services:
       retries: 3
     networks:
     - my_network
-    <<: *default-logging
+    <<: [*default-logging, *core-limits]
   web:
     build:
       context: .
@@ -75,16 +82,17 @@ services:
     dns:
       # пойдут за резолвом YouTube напрямую к серверам в туннеле,
       # минуя цепочку посредников Docker-WSL-Windows
-      - 1.1.1.1
-      - 8.8.8.8
+      - ${APP_DNS_PRIMARY:-1.1.1.1}
+      - ${APP_DNS_SECONDARY:-8.8.8.8}
     env_file:
       - app/config/envs/.env.app-prod
       - app/config/envs/.env.postgres-prod
       - app/config/envs/.env.redis-prod
     environment:
       - RUN_BACKGROUND_TASKS=False # жестко выключаем очистку
-    ports:
-      - "8000:8000"
+    # ПОРТЫ УДАЛЕНЫ для prod: Nginx общается с web напрямую через внутреннюю сеть Docker
+    # ports:
+    #   - "8000:8000"
     volumes:
       - downloads_data:/app/downloads
     depends_on:
@@ -101,6 +109,11 @@ services:
     networks:
       - my_network
     <<: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'       # Для API выделяем 1 ядро
+          memory: 1G        # 1 ГБ RAM под нагрузку запросами
   # КРОН / ВОРКЕР ОЧИСТКИ (Работает в 1 поток для очистки файлов)
   cron_worker:
     build:
@@ -110,8 +123,8 @@ services:
     restart: unless-stopped
     dns:
       # добавлен dns для cron_worker, так как он тоже может обращаться к внешним сервисам, как и web
-      - 1.1.1.1
-      - 8.8.8.8
+      - ${APP_DNS_PRIMARY:-1.1.1.1}
+      - ${APP_DNS_SECONDARY:-8.8.8.8}
     env_file:
       - app/config/envs/.env.app-prod
       - app/config/envs/.env.postgres-prod
@@ -135,6 +148,11 @@ services:
     networks:
       - my_network
     <<: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'       # Позволяем FFmpeg/yt-dlp брать до 2 ядер для склейки тяжелого медиа
+          memory: 2G        # 2 ГБ RAM, чтобы не упасть на больших файлах
   nginx:
     build:
       context: .
@@ -156,7 +174,7 @@ services:
         condition: service_healthy
     networks:
       - my_network
-    <<: *default-logging
+    <<: [*default-logging, *core-limits]
   # === БЛОК МОНИТОРИНГА ===
   prometheus:
     image: prom/prometheus:v3.12.0
@@ -171,13 +189,13 @@ services:
         condition: service_healthy
     networks:
       - my_network
-    <<: *default-logging
+    <<: [*default-logging, *core-limits]
   grafana:
     image: grafana/grafana:13.0.3-slim
     container_name: grafana
     restart: unless-stopped
     ports:
-      - "3000:3000" # Открываем веб-интерфейс Grafana наружу
+      - "127.0.0.1:3000:3000" # Открываем веб-интерфейс Grafana наружу
     volumes:
       - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
@@ -186,7 +204,7 @@ services:
       - prometheus
     networks:
       - my_network
-    <<: *default-logging
+    <<: [*default-logging, *core-limits]
 
 volumes:
   pg_data:

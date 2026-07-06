@@ -67,6 +67,11 @@ class LoadMediaRequest(BaseModel):
         else:
             return value
 
+        # 1. ЗАЩИТА ОТ DoS: Проверяем длину до запуска регулярного выражения
+        # Стандарт индустрии для максимальной длины URL — 2048 символов
+        if len(url_str) > 2048:
+            raise PydanticCustomError("url_error", "URL is too long (max 2048 characters)")
+
         # Проверяем, является ли ссылка ютубовской
         is_youtube: bool = any(domain in url_str.lower() for domain in ["youtube.com", "youtu.be"])
 
@@ -106,9 +111,7 @@ class LoadMediaRequest(BaseModel):
             ip_str = socket.gethostbyname(host)
             ip = ipaddress.ip_address(ip_str)
         except Exception:
-            # Если домен не резолвится, yt-dlp всё равно не сможет скачать,
-            # но для безопасности можно пропустить или выбросить ошибку
-            return url
+            raise PydanticCustomError("url_error", "Could not resolve host")
 
         # 3. Проверяем, входит ли IP в приватные или loopback диапазоны
         if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved:

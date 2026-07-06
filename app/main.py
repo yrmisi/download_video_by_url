@@ -11,15 +11,16 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.config import setup_logging
 from app.core.cors import get_allowed_origins
 from app.core.handlers import (
     rate_limit_handler,
     validation_exception_handler,
 )
 from app.core.limiter import limiter
+from app.core.logging import setup_logging
 from app.database import async_engine
 from app.database.db_telemetry import close_database_telemetry, setup_database_telemetry
+from app.middlewares import CorrelationIDMiddleware
 from app.routers import (
     cancel_router,
     health_router,
@@ -121,6 +122,9 @@ app.add_middleware(
 # Интегрируем SlowAPI
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+
+# Подключаем кастомную correlation id
+app.add_middleware(CorrelationIDMiddleware)
 
 # Регистрация обработчиков исключений
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)

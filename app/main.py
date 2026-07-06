@@ -104,8 +104,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="MediaGrab", lifespan=lifespan)
 
-# Настройка CORS
-# CORS Middleware (ДОЛЖЕН БЫТЬ ПЕРВЫМ для обработки OPTIONS preflight)
+# Сначала интегрируем SlowAPI (добавляется первым -> будет глубоко)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+# Подключаем кастомный correlation id (посередине)
+app.add_middleware(CorrelationIDMiddleware)
+
+# Настройка CORS (ДОЛЖЕН БЫТЬ ДОБАВЛЕН ПОСЛЕДНИМ, чтобы стать самым внешним)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
@@ -118,13 +124,6 @@ app.add_middleware(
     ],
     allow_headers=["*"],
 )
-
-# Интегрируем SlowAPI
-app.state.limiter = limiter
-app.add_middleware(SlowAPIMiddleware)
-
-# Подключаем кастомную correlation id
-app.add_middleware(CorrelationIDMiddleware)
 
 # Регистрация обработчиков исключений
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)

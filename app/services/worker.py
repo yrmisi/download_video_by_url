@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ from typing import Any, Mapping, cast
 
 from redis import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from yt_dlp.utils import DownloadError
 
 from app.config import settings
 from app.config.paths import DOWNLOADS_DIR
@@ -52,11 +54,14 @@ class DownloadTaskService:
         """
         Execute the media download process.
         """
+        loop = asyncio.get_running_loop()
+
         # Создаем "заряженные" хуки с уже подставленными task_id и redis
         p_hook = partial(progress_hook, task_id=self.task_id, redis_client=self.r)
         pp_hook = partial(postprocessor_hook, task_id=self.task_id, redis_client=self.r)
 
-        ydl_opts = settings.app.advanced_ydl_opts
+        # Важно: изолируем опции для текущей задачи
+        ydl_opts: dict[str, Any] = copy.deepcopy(settings.app.advanced_ydl_opts)
 
         ydl_opts["outtmpl"] = ydl_opts["outtmpl"].format(task_id=self.task_id)
         ydl_opts["progress_hooks"].append(p_hook)
@@ -82,29 +87,67 @@ class DownloadTaskService:
 
         for attempt in range(1, self.attempts + 1):
             try:
-                # info — словарь с данными, path — ожидаемый путь файла
-                loop = asyncio.get_running_loop()
-                info, path = await loop.run_in_executor(
-                    None,
-                    execute_ydl,
-                    ydl_opts,
-                    str(self.load_media.url),
+                # Получаем info — словарь с данными, path — ожидаемый путь файла
+                # Жесткий тайм-аут на скачивание (например, 30 минут)
+                info, path = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        execute_ydl,
+                        ydl_opts,
+                        str(self.load_media.url),
+                    ),
+                    timeout=1800,
                 )
                 break  # Если скачалось успешно — выходим из цикла попыток
+            except DownloadError as e:
+                # 1. Проверяем, была ли это запланированная отмена пользователем из хука
+                if "Download cancelled by user" in str(e):
+                    logger.info(
+                        f"Task {self.task_id} was successfully cancelled by user via yt-dlp exception."
+                    )
+                    # Синхронный Redis убираем в executor, чтобы не фризить loop
+                    await loop.run_in_executor(
+                        None,
+                        self.r.set,
+                        f"task:{self.task_id}",
+                        json.dumps(
+                            {
+                                "status": "cancelled",
+                                "msg": "Stopped by user",
+                            }
+                        ),
+                    )
+                    # Важно возбудить асинхронную отмену, чтобы event loop правильно завершил корутину
+                    raise asyncio.CancelledError()
+
+                # 2. Если это обычная сетевая или форматная ошибка самого yt-dlp, обрабатываем логику попыток
+                if attempt == self.attempts:
+                    await self._handle_fatal_error(e)
+                    return
+
+                logger.warning(
+                    f"Attempt {attempt} for task {self.task_id} failed (yt-dlp error): {e}. Retrying..."
+                )
+                await asyncio.sleep(self.delay)
+                self.delay *= 2
             except asyncio.CancelledError:
                 logger.info(f"Task {self.task_id} was cancelled!")
-                self.r.set(f"task:{self.task_id}", json.dumps({"status": "cancelled"}))
+                await loop.run_in_executor(
+                    None,
+                    self.r.set,
+                    f"task:{self.task_id}",
+                    json.dumps(
+                        {
+                            "status": "cancelled",
+                            "msg": "Stopped by user",
+                        }
+                    ),
+                )
                 raise
             except Exception as e:
                 if attempt == self.attempts:
                     # Это была последняя попытка, фиксируем критическую ошибку
-                    logger.error(f"Task {self.task_id} failed after {self.attempts} attempts: {e}")
-                    error_data = {"status": "error", "msg": str(e)}
-                    self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
-                    async with self.session_pool() as session:
-                        await DownloadHistoryRepository(session).update(
-                            self.task_id, UpdateLoadHistoryItems(status="error")
-                        )
+                    await self._handle_fatal_error(e)
                     return
 
                 logger.warning(
@@ -122,7 +165,10 @@ class DownloadTaskService:
             "percent": "100%",
             "file_url": f"/api/files/{self.task_id}",
         }
-        self.r.setex(
+        # Безопасный setex в потоке
+        await loop.run_in_executor(
+            None,
+            self.r.setex,
             f"task:{self.task_id}",
             3600,
             json.dumps(final_data),
@@ -146,17 +192,30 @@ class DownloadTaskService:
                 item_update,
             )
         # Очищаем все закэшированные страницы истории пользователя
-        user_history_pattern = f"user_history:{self.load_media.user_id}:*"
-        cached_keys = cast(list[Any], self.r.keys(user_history_pattern))
+        user_history_pattern = f"user_history:{self.load_media.user_id}"
+        cached_keys = cast(
+            list[Any],
+            await loop.run_in_executor(
+                None,
+                self.r.keys,
+                user_history_pattern,
+            ),
+        )
         if cached_keys:
-            self.r.delete(*cached_keys)
+            await loop.run_in_executor(
+                None,
+                self.r.delete,
+                *cached_keys,
+            )
 
         logger.info(
             f"Task {self.task_id} finished, cache invalidated for user {self.load_media.user_id}"
         )
 
     def _set_ydl_opts(self, opts: Any) -> None:
-        """Configure yt-dlp options based on the profile."""
+        """
+        Configure yt-dlp options based on the profile.
+        """
         if self.load_media.profile == DownloadProfile.pc_tv:
             # НОВЫЕ ТВ / ПК: Тянем лучшее (VP9/AV1), плееры на ПК прочитают всё
             # Позволяет получить 4K и HDR, если они есть
@@ -250,12 +309,16 @@ class DownloadTaskService:
 
             loop = asyncio.get_running_loop()
             # Получаем плоскую инфу без скачивания контента
-            raw_info: Mapping[str, Any] = await loop.run_in_executor(
-                None,
-                get_raw_extract_info,
-                str(self.load_media.url),
-                settings.app.base_ydl_opts,
-                False,
+            # Ставим тайм-аут 30 секунд на получение метаданных
+            raw_info: Mapping[str, Any] = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    get_raw_extract_info,
+                    str(self.load_media.url),
+                    settings.app.base_ydl_opts,
+                    False,
+                ),
+                timeout=30.0,
             )
 
             # Извлекаем размер (проверяем точный, аппроксимированный или суммарный для плейлистов)
@@ -263,16 +326,26 @@ class DownloadTaskService:
 
             if estimated_size > settings.app.max_size_media:
                 size_gb = estimated_size / (1024**3)
-                raise ValueError(f"Файл слишком большой: {size_gb:.2f}GB (Лимит: 5.00GB)")
+                raise ValueError(f"The file is too large: {size_gb:.2f}GB (Limit: 5.00GB)")
 
             return True
 
         except ValueError as val_err:
             # Обрабатываем превышение размера: пишем ошибку в Redis и БД, выходим
             logger.warning(f"Task {self.task_id} rejected: {val_err}")
-            error_data = {"status": "error", "msg": str(val_err)}
+            error_data = {
+                "status": "error",
+                "msg": str(val_err),
+            }
 
-            self.r.setex(f"task:{self.task_id}", 3600, json.dumps(error_data))
+            # Вынос в executor
+            await loop.run_in_executor(
+                None,
+                self.r.setex,
+                f"task:{self.task_id}",
+                3600,
+                json.dumps(error_data),
+            )
 
             async with self.session_pool() as session:
                 await DownloadHistoryRepository(session).update(
@@ -287,3 +360,30 @@ class DownloadTaskService:
                 f"Pre-download size check failed for task {self.task_id}: {e}. Proceeding."
             )
             return True
+
+    async def _handle_fatal_error(self, error: Exception | str) -> None:
+        """
+        Handles final task failure after all attempts are exhausted.
+        Logs the error, updates Redis status, and sets the DB status to error.
+        """
+        error_msg: str = str(error)
+        logger.error(f"Task {self.task_id} failed after {self.attempts} attempts: {error_msg}")
+
+        error_data = {
+            "status": "error",
+            "msg": error_msg,
+        }
+        # Вынос в executor
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            self.r.setex,
+            f"task:{self.task_id}",
+            3600,
+            json.dumps(error_data),
+        )
+
+        async with self.session_pool() as session:
+            await DownloadHistoryRepository(session).update(
+                self.task_id,
+                UpdateLoadHistoryItems(status="error"),
+            )
